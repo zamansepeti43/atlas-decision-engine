@@ -1,0 +1,27 @@
+kind = "web"
+previewPath = "/"
+title = "Atlas AI MVP"
+version = "1.0.0"
+id = "artifacts/atlas-ai"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 20398
+
+[services.development]
+run = "pnpm --filter @workspace/atlas-ai run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/atlas-ai", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/atlas-ai/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "20398"
+BASE_PATH = "/"
