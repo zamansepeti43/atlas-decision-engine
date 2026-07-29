@@ -1,156 +1,308 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { analyzeDecision, type AnalysisResult } from '@/lib/atlas-ai';
+import { detectIntentSync, processQuery, type AtlasResponseData, type IntentDetectionResult } from '@/lib/intent-router';
 import { AnalysisReport } from '@/components/AnalysisReport';
+import { ConversationCard } from '@/components/responses/ConversationCard';
+import { LearningCard } from '@/components/responses/LearningCard';
+import { WritingCard } from '@/components/responses/WritingCard';
+import { ResearchCard } from '@/components/responses/ResearchCard';
+import { PlanningCard } from '@/components/responses/PlanningCard';
+import { ProblemSolvingCard } from '@/components/responses/ProblemSolvingCard';
 import { LoadingState } from '@/components/LoadingState';
+
+const PLACEHOLDER_EXAMPLES = [
+  '40.000 TL bütçem var. Hangi telefonu almalıyım?',
+  'Yapay zeka nedir? Nasıl çalışır?',
+  '6 ayda İngilizce öğrenme planı yap',
+  'İş arkadaşıma veda e-postası yaz',
+  'Elektrikli araba mı yoksa hybrid mi almalıyım?',
+  'Python programlama dili hakkında araştırma yap',
+  'Kariyer değişikliği için adım adım rehber',
+];
+
+const INTENT_LABELS: Record<string, string> = {
+  conversation: 'Sohbet',
+  decision: 'Karar Analizi',
+  learning: 'Öğrenme',
+  writing: 'Yazı Asistanı',
+  research: 'Araştırma',
+  planning: 'Planlama',
+  'problem-solving': 'Problem Çözümü',
+};
 
 export default function Home() {
   const [question, setQuestion] = useState('');
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [result, setResult] = useState<AnalysisResult | null>(null);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [response, setResponse] = useState<AtlasResponseData | null>(null);
+  const [intentPreview, setIntentPreview] = useState<IntentDetectionResult | null>(null);
+  const [activeLoadingConfig, setActiveLoadingConfig] = useState<IntentDetectionResult | null>(null);
+  const [placeholderIdx, setPlaceholderIdx] = useState(0);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  const handleAnalyze = async () => {
-    if (!question.trim() || isAnalyzing) return;
-    
-    setIsAnalyzing(true);
+  // Rotate placeholder text
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setPlaceholderIdx((i) => (i + 1) % PLACEHOLDER_EXAMPLES.length);
+    }, 3500);
+    return () => clearInterval(timer);
+  }, []);
+
+  // Live intent preview while typing
+  useEffect(() => {
+    if (!question.trim() || question.length < 8) {
+      setIntentPreview(null);
+      return;
+    }
+    const timer = setTimeout(() => {
+      setIntentPreview(detectIntentSync(question));
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [question]);
+
+  const handleSubmit = async () => {
+    if (!question.trim() || isProcessing) return;
+
+    const detected = detectIntentSync(question);
+    setActiveLoadingConfig(detected);
+    setIsProcessing(true);
+    setResponse(null);
+
     try {
-      const analysisResult = await analyzeDecision(question);
-      setResult(analysisResult);
-    } catch (error) {
-      console.error('Analysis failed:', error);
+      const result = await processQuery(question);
+      setResponse(result);
+    } catch (err) {
+      console.error('Atlas AI error:', err);
     } finally {
-      setIsAnalyzing(false);
+      setIsProcessing(false);
     }
   };
 
   const handleReset = () => {
     setQuestion('');
-    setResult(null);
+    setResponse(null);
+    setIntentPreview(null);
+    setActiveLoadingConfig(null);
+    setTimeout(() => textareaRef.current?.focus(), 100);
   };
 
-  const handleKeyPress = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleAnalyze();
+  const handleFollowUp = (q: string) => {
+    setQuestion(q);
+    setResponse(null);
+    setIntentPreview(null);
+    setTimeout(() => handleSubmitWith(q), 50);
+  };
+
+  const handleSubmitWith = async (q: string) => {
+    const detected = detectIntentSync(q);
+    setActiveLoadingConfig(detected);
+    setIsProcessing(true);
+    try {
+      const result = await processQuery(q);
+      setResponse(result);
+    } catch (err) {
+      console.error('Atlas AI error:', err);
+    } finally {
+      setIsProcessing(false);
     }
   };
 
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSubmit();
+    }
+  };
+
+  const showInput = !response && !isProcessing;
+  const showLoading = isProcessing;
+  const showResponse = !!response && !isProcessing;
+
   return (
     <div className="min-h-[100dvh] w-full bg-background relative overflow-hidden">
-      {/* Ambient background gradient */}
+      {/* Ambient background */}
       <div className="absolute inset-0 bg-gradient-to-b from-primary/5 via-transparent to-transparent pointer-events-none" />
       <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-primary/10 rounded-full blur-3xl opacity-20 pointer-events-none" />
       <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-primary/10 rounded-full blur-3xl opacity-20 pointer-events-none" />
 
       <div className="relative z-10 container mx-auto px-4 py-12 md:py-20">
         <AnimatePresence mode="wait">
-          {!result ? (
+
+          {/* ── Input view ── */}
+          {showInput && (
             <motion.div
               key="input"
-              initial={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0, y: -12 }}
+              transition={{ duration: 0.4 }}
               className="max-w-3xl mx-auto"
             >
               {/* Header */}
               <motion.div
                 initial={{ opacity: 0, y: -20 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.8, ease: "easeOut" }}
+                transition={{ duration: 0.8, ease: 'easeOut' }}
                 className="text-center mb-16"
               >
                 <h1 className="text-5xl md:text-7xl font-serif font-bold mb-4">
                   <span className="text-foreground">Atlas</span>{' '}
-                  <span
-                    className="text-primary"
-                    style={{
-                      textShadow: '0 0 30px hsl(var(--primary) / 0.3)'
-                    }}
-                  >
+                  <span className="text-primary" style={{ textShadow: '0 0 30px hsl(var(--primary) / 0.3)' }}>
                     AI
                   </span>
                 </h1>
                 <p className="text-lg md:text-xl text-muted-foreground font-light tracking-wide">
-                  Karar Vermeden Önce Atlas AI'a Sor
+                  Her sorunuz için doğru yanıt biçimi
                 </p>
               </motion.div>
 
-              {/* Input Section */}
+              {/* Input */}
               <motion.div
                 initial={{ opacity: 0, y: 40 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.8, delay: 0.2, ease: "easeOut" }}
-                className="space-y-6"
+                transition={{ duration: 0.8, delay: 0.2, ease: 'easeOut' }}
+                className="space-y-4"
               >
                 <div className="relative">
                   <textarea
+                    ref={textareaRef}
                     value={question}
                     onChange={(e) => setQuestion(e.target.value)}
-                    onKeyPress={handleKeyPress}
-                    placeholder="40.000 TL bütçem var. Hangi telefonu almalıyım?"
-                    className="w-full min-h-[180px] bg-card/50 backdrop-blur-sm border-2 border-border rounded-2xl px-6 py-5 text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary transition-all duration-300 resize-none text-lg leading-relaxed focus:gold-glow"
+                    onKeyDown={handleKeyDown}
+                    placeholder={PLACEHOLDER_EXAMPLES[placeholderIdx]}
+                    className="w-full min-h-[160px] bg-card/50 backdrop-blur-sm border-2 border-border rounded-2xl px-6 py-5 text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-primary transition-all duration-300 resize-none text-lg leading-relaxed"
                     data-testid="input-question"
-                    disabled={isAnalyzing}
+                    autoFocus
                   />
+
+                  {/* Live intent badge */}
+                  <AnimatePresence>
+                    {intentPreview && (
+                      <motion.div
+                        initial={{ opacity: 0, scale: 0.9, y: 4 }}
+                        animate={{ opacity: 1, scale: 1, y: 0 }}
+                        exit={{ opacity: 0, scale: 0.9 }}
+                        transition={{ duration: 0.2 }}
+                        className="absolute bottom-4 right-4 flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-full border"
+                        style={{
+                          background: 'hsl(var(--primary) / 0.08)',
+                          borderColor: 'hsl(var(--primary) / 0.3)',
+                          color: 'hsl(var(--primary))',
+                        }}
+                      >
+                        <span className="w-1.5 h-1.5 rounded-full bg-primary" />
+                        {INTENT_LABELS[intentPreview.intent] ?? intentPreview.intent}
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
                 </div>
 
                 <motion.button
-                  onClick={handleAnalyze}
-                  disabled={!question.trim() || isAnalyzing}
-                  className="w-full py-5 rounded-2xl font-semibold text-lg text-primary-foreground bg-gradient-to-r from-primary via-chart-2 to-primary bg-size-200 hover:bg-pos-100 transition-all duration-500 disabled:opacity-50 disabled:cursor-not-allowed relative overflow-hidden group"
-                  whileHover={{ scale: question.trim() && !isAnalyzing ? 1.02 : 1 }}
-                  whileTap={{ scale: question.trim() && !isAnalyzing ? 0.98 : 1 }}
-                  data-testid="button-analyze"
-                  style={{
-                    backgroundSize: '200% 100%',
-                    backgroundPosition: '0% 0%'
-                  }}
+                  onClick={handleSubmit}
+                  disabled={!question.trim()}
+                  className="w-full py-5 rounded-2xl font-semibold text-lg text-primary-foreground bg-gradient-to-r from-primary via-chart-2 to-primary transition-all duration-300 disabled:opacity-40 disabled:cursor-not-allowed relative overflow-hidden group"
+                  whileHover={{ scale: question.trim() ? 1.015 : 1 }}
+                  whileTap={{ scale: question.trim() ? 0.98 : 1 }}
+                  data-testid="button-submit"
+                  style={{ backgroundSize: '200% 100%' }}
                 >
-                  <span className="relative z-10">
-                    {isAnalyzing ? 'Analiz Ediliyor...' : 'Analiz Et'}
-                  </span>
-                  <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-1000" />
+                  <span className="relative z-10">Atlas'a Sor</span>
+                  <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/15 to-transparent translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-1000" />
                 </motion.button>
-              </motion.div>
 
-              {/* Loading State */}
-              <AnimatePresence>
-                {isAnalyzing && (
-                  <motion.div
-                    initial={{ opacity: 0, height: 0 }}
-                    animate={{ opacity: 1, height: 'auto' }}
-                    exit={{ opacity: 0, height: 0 }}
-                    className="mt-12"
-                  >
-                    <LoadingState />
-                  </motion.div>
-                )}
-              </AnimatePresence>
+                {/* Intent hint row */}
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ delay: 0.5 }}
+                  className="flex items-center justify-center gap-3 flex-wrap"
+                >
+                  {Object.entries(INTENT_LABELS).map(([key, label]) => (
+                    <span key={key} className="text-xs text-muted-foreground/40">
+                      {label}
+                    </span>
+                  ))}
+                </motion.div>
+              </motion.div>
             </motion.div>
-          ) : (
+          )}
+
+          {/* ── Loading view ── */}
+          {showLoading && (
             <motion.div
-              key="report"
+              key="loading"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              transition={{ duration: 0.5 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.3 }}
+              className="max-w-3xl mx-auto"
             >
-              {/* Compact header for report view */}
-              <motion.div
-                initial={{ opacity: 0, y: -10 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="text-center mb-12"
-              >
-                <h1 className="text-3xl md:text-4xl font-serif font-bold mb-2">
+              {/* Compact header */}
+              <div className="text-center mb-12">
+                <h1 className="text-3xl md:text-4xl font-serif font-bold mb-1">
                   <span className="text-foreground">Atlas</span>{' '}
                   <span className="text-primary">AI</span>
                 </h1>
-                <p className="text-sm text-muted-foreground">
-                  Analiz Raporu
+                {activeLoadingConfig && (
+                  <p className="text-xs text-muted-foreground uppercase tracking-widest">
+                    {INTENT_LABELS[activeLoadingConfig.intent]}
+                  </p>
+                )}
+              </div>
+              <LoadingState
+                loadingText={activeLoadingConfig?.loadingText}
+                steps={activeLoadingConfig?.loadingSteps}
+              />
+            </motion.div>
+          )}
+
+          {/* ── Response view ── */}
+          {showResponse && response && (
+            <motion.div
+              key="response"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ duration: 0.4 }}
+            >
+              {/* Compact header */}
+              <motion.div
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="text-center mb-10"
+              >
+                <h1 className="text-3xl md:text-4xl font-serif font-bold mb-1">
+                  <span className="text-foreground">Atlas</span>{' '}
+                  <span className="text-primary">AI</span>
+                </h1>
+                <p className="text-xs text-muted-foreground uppercase tracking-widest">
+                  {INTENT_LABELS[response.intent] ?? response.intent}
                 </p>
               </motion.div>
 
-              <AnalysisReport result={result} onReset={handleReset} />
+              {/* Route to correct card */}
+              {response.intent === 'decision' && (
+                <AnalysisReport result={response.data} onReset={handleReset} />
+              )}
+              {response.intent === 'conversation' && (
+                <ConversationCard data={response.data} onFollowUp={handleFollowUp} onReset={handleReset} />
+              )}
+              {response.intent === 'learning' && (
+                <LearningCard data={response.data} onFollowUp={handleFollowUp} onReset={handleReset} />
+              )}
+              {response.intent === 'writing' && (
+                <WritingCard data={response.data} onReset={handleReset} />
+              )}
+              {response.intent === 'research' && (
+                <ResearchCard data={response.data} onReset={handleReset} />
+              )}
+              {response.intent === 'planning' && (
+                <PlanningCard data={response.data} onReset={handleReset} />
+              )}
+              {response.intent === 'problem-solving' && (
+                <ProblemSolvingCard data={response.data} onReset={handleReset} />
+              )}
             </motion.div>
           )}
+
         </AnimatePresence>
       </div>
     </div>
