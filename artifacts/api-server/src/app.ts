@@ -3,7 +3,7 @@ import cors from "cors";
 import pinoHttp from "pino-http";
 const pino = pinoHttp.default ?? pinoHttp;
 import router from "./routes/index.js";
-import { logger } from "./lib/logger";
+import { logger } from "./lib/logger.js";
 
 const app: Express = express();
 
@@ -24,9 +24,6 @@ app.use(
         };
       },
     },
-  }),
-);
-app.use(cors({
   origin: "https://musical-guide-wv745wxw57v5295gv-5174.app.github.dev",
   methods: ["GET", "POST", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"],
