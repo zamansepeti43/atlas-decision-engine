@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
-import healthRouter from "./health";
-import chatRouter from "./chat";
+import healthRouter from "./health.js";
+import chatRouter from "./chat.js";
 
 const router: IRouter = Router();
 
