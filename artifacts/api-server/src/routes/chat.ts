@@ -15,7 +15,7 @@ router.post("/", async (req, res) => {
 
                                       const reply = await askGemini(message);
 
-                                          res.json({
+                                          return res.json({
                                                 success: true,
                                                       reply
                                                           });
