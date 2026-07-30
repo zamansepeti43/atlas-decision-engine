@@ -1,2 +1,2 @@
-export * from "./generated/api.js";
-export * from "./generated/types";
+xport * from "./generated/api.js";
+export * from "./generated/types/index.js";
