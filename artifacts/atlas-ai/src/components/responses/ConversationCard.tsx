@@ -76,6 +76,14 @@ export function ConversationCard({ data, onFollowUp, onReset }: Props) {
         >
           Yeni Soru Sor
         </button>
+        <div className="mt-6 flex justify-center">
+  <button
+    onClick={onReset}
+    className="rounded-xl bg-primary px-4 py-2 text-primary-foreground"
+  >
+    Yeni bir soru sor
+  </button>
+</div>
       </motion.div>
     </motion.div>
   );
