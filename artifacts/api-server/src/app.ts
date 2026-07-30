@@ -25,7 +25,13 @@ app.use(
     },
   }),
 );
-app.use(cors());
+app.use(cors({
+  origin: "https://musical-guide-wv745wxw57v5295gv-5174.app.github.dev",
+  methods: ["GET", "POST", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+}));
+
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 

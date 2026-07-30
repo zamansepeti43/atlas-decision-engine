@@ -31,6 +31,7 @@ const INTENT_LABELS: Record<string, string> = {
 };
 
 export default function Home() {
+  console.log("HOME COMPONENT RENDER EDILDI");
   const [question, setQuestion] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [response, setResponse] = useState<AtlasResponseData | null>(null);
@@ -60,6 +61,7 @@ export default function Home() {
   }, [question]);
 
   const handleSubmit = async () => {
+   console.log("HANDLE SUBMIT ÇALIŞTI");
     if (!question.trim() || isProcessing) return;
 
     const detected = detectIntentSync(question);
@@ -68,7 +70,9 @@ export default function Home() {
     setResponse(null);
 
     try {
-      const result = await processQuery(question);
+      console.log("PROCESSQUERY ÇAĞRILACAK");
+const result = await processQuery(question);
+console.log("PROCESSQUERY BİTTİ");
       setResponse(result);
     } catch (err) {
       console.error('Atlas AI error:', err);

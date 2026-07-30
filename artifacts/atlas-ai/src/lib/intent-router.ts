@@ -1,3 +1,4 @@
+import { analyzeDecision, type AnalysisResult } from "./atlas-ai";
 /**
  * Atlas AI — Intent Router
  *
@@ -6,7 +7,7 @@
  *
  * Architecture:
  *   detectIntentSync(q)  — sync, runs before showing loading state
- *   processQuery(q)      — async, returns AtlasResponseData (discriminated union)
+ *   (q)      — async, returns AtlasResponseData (discriminated union)
  *
  * To replace the generators below with an LLM, swap the body of `processQuery`.
  * The AtlasResponseData interface and every rendering component stay the same.
@@ -27,8 +28,27 @@
  * ─────────────────────────────────────────────────────────────────────────────
  */
 
-import { analyzeDecision, type AnalysisResult } from './atlas-ai';
+async function askBackend(question: string) {
+ console.log("askBackend çalıştı");
+  console.log("İstek gönderiliyor:", question);
+console.log("HTTP isteği başladı");
+  const res = await fetch("https://musical-guide-wv745wxw57v5295gv-3001.app.github.dev/api/chat", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      message: question,
+    }),
+  });
 
+  console.log("HTTP Durumu:", res.status);
+
+  const data = await res.json();
+  console.log("Gelen cevap:", data);
+
+  return data.reply;
+}
 // ─── Public types ─────────────────────────────────────────────────────────────
 
 export type IntentType =
@@ -740,39 +760,87 @@ function generateProblemSolving(question: string): ProblemSolvingData {
  * Replace the switch body with an LLM call to upgrade from rule-based to AI.
  */
 export async function processQuery(question: string): Promise<AtlasResponseData> {
-  const { intent } = detectIntentSync(question);
+  console.log("processQuery çalıştı:", question)
+  const intent = "conversation";
+  
+  const reply = await askBackend(question);
 
-  const DELAYS: Record<IntentType, number> = {
-    conversation: 700,
-    decision: 3000,
-    learning: 1600,
-    writing: 2200,
-    research: 2500,
-    planning: 2000,
-    'problem-solving': 1800,
-  };
-
-  await new Promise((r) => setTimeout(r, DELAYS[intent]));
-
-  // TODO: Replace each case body with the corresponding LLM prompt call.
   switch (intent) {
-    case 'decision': {
-      const data = await analyzeDecision(question);
-      // analyzeDecision already sleeps; we already slept above — it has its own 3 s delay internally
-      // so we return directly (the extra sleep above is not ideal but harmless for mock mode)
-      return { intent: 'decision', data };
-    }
-    case 'learning':
-      return { intent: 'learning', data: generateLearning(question) };
-    case 'writing':
-      return { intent: 'writing', data: generateWriting(question) };
-    case 'research':
-      return { intent: 'research', data: generateResearch(question) };
-    case 'planning':
-      return { intent: 'planning', data: generatePlanning(question) };
-    case 'problem-solving':
-      return { intent: 'problem-solving', data: generateProblemSolving(question) };
+    case "decision": {
+  const data = await analyzeDecision(question);
+  return {
+    intent: "decision",
+    data,
+  };
+}
+
+    case "learning":
+      return {
+        intent: "learning",
+        data: {
+          topic: question,
+          summary: reply,
+          keyPoints: [],
+          example: "",
+          nextTopics: [],
+        },
+      };
+
+    case "writing":
+      return {
+        intent: "writing",
+        data: {
+          taskDescription: question,
+          contentType: "text",
+          content: reply,
+          wordCount: reply.split(" ").length,
+          suggestions: [],
+        },
+      };
+
+    case "research":
+      return {
+        intent: "research",
+        data: {
+          topic: question,
+          executiveSummary: reply,
+          findings: [],
+          conclusion: "",
+        },
+      };
+
+    case "planning":
+      return {
+        intent: "planning",
+        data: {
+          goal: question,
+          totalDuration: "",
+          phases: [],
+          successTips: [],
+        },
+      };
+
+    case "problem-solving":
+      return {
+        intent: "problem-solving",
+        data: {
+          problemStatement: question,
+          diagnosis: reply,
+          solutions: [],
+          quickFix: "",
+        },
+      };
+
     default:
-      return { intent: 'conversation', data: generateConversation(question) };
+      return {
+        intent: "conversation",
+        data: {
+          message: reply,
+          tone: "helpful",
+          followUps: [],
+        },
+      };
   }
 }
+
+ 
