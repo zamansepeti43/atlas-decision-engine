@@ -29,7 +29,7 @@ app.use(
 
 app.use(
   cors({
-    origin: "https://musical-guide-wv745wxw57v5295gv-5174.app.github.dev",
+    origin: "https://atlasai-puce.vercel.app",
     methods: ["GET", "POST", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
   })
