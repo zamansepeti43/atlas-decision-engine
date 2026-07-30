@@ -32,7 +32,7 @@ async function askBackend(question: string) {
  console.log("askBackend çalıştı");
   console.log("İstek gönderiliyor:", question);
 console.log("HTTP isteği başladı");
-  const res = await fetch("https://musical-guide-wv745wxw57v5295gv-3001.app.github.dev/api/chat", {
+  const res = await fetch("https://atlas-karar-motoru-api-sunucusu.vercel.app/api/chat", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
