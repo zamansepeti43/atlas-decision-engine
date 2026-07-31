@@ -762,86 +762,17 @@ function generateProblemSolving(question: string): ProblemSolvingData {
  */
 export async function processQuery(question: string): Promise<AtlasResponseData> {
   console.log("processQuery çalıştı:", question)
-  const intent = "conversation";
-  
+
   const reply = await askBackend(question);
 
-  switch (intent) {
-    case "decision": {
-  const data = await analyzeDecision(question);
   return {
-    intent: "decision",
-    data,
+    intent: "conversation",
+    data: {
+      message: reply,
+      tone: "helpful",
+      followUps: [],
+    },
   };
-}
-
-    case "learning":
-      return {
-        intent: "learning",
-        data: {
-          topic: question,
-          summary: reply,
-          keyPoints: [],
-          example: "",
-          nextTopics: [],
-        },
-      };
-
-    case "writing":
-      return {
-        intent: "writing",
-        data: {
-          taskDescription: question,
-          contentType: "text",
-          content: reply,
-          wordCount: reply.split(" ").length,
-          suggestions: [],
-        },
-      };
-
-    case "research":
-      return {
-        intent: "research",
-        data: {
-          topic: question,
-          executiveSummary: reply,
-          findings: [],
-          conclusion: "",
-        },
-      };
-
-    case "planning":
-      return {
-        intent: "planning",
-        data: {
-          goal: question,
-          totalDuration: "",
-          phases: [],
-          successTips: [],
-        },
-      };
-
-    case "problem-solving":
-      return {
-        intent: "problem-solving",
-        data: {
-          problemStatement: question,
-          diagnosis: reply,
-          solutions: [],
-          quickFix: "",
-        },
-      };
-
-    default:
-      return {
-        intent: "conversation",
-        data: {
-          message: reply,
-          tone: "helpful",
-          followUps: [],
-        },
-      };
-  }
 }
 
  

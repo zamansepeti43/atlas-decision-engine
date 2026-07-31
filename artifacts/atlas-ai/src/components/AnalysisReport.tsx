@@ -17,7 +17,7 @@ const containerVariants = {
       delayChildren: 0.1,
     },
   },
-};
+} satisfies Record<string, unknown>;
 
 const itemVariants = {
   hidden: { opacity: 0, y: 28 },
@@ -26,10 +26,10 @@ const itemVariants = {
     y: 0,
     transition: {
       duration: 0.65,
-      ease: [0.22, 1, 0.36, 1],
+      ease: 'easeOut' as const,
     },
   },
-};
+} satisfies Record<string, unknown>;
 
 function confidenceLabel(level: number): { label: string; color: string } {
   if (level >= 88) return { label: 'Çok Yüksek', color: 'text-emerald-400' };

@@ -10,11 +10,11 @@ interface Props {
 const container = {
   hidden: { opacity: 0 },
   visible: { opacity: 1, transition: { staggerChildren: 0.13, delayChildren: 0.05 } },
-};
+} satisfies Record<string, unknown>;
 const item = {
   hidden: { opacity: 0, y: 22 },
-  visible: { opacity: 1, y: 0, transition: { duration: 0.6, ease: [0.22, 1, 0.36, 1] } },
-};
+  visible: { opacity: 1, y: 0, transition: { duration: 0.6, ease: 'easeOut' as const } },
+} satisfies Record<string, unknown>;
 
 const EFFORT_CONFIG: Record<string, { label: string; color: string; bg: string }> = {
   'Düşük': { label: 'Düşük Efor', color: 'text-emerald-400', bg: 'bg-emerald-400/10' },

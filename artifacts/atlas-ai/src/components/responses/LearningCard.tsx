@@ -11,11 +11,11 @@ interface Props {
 const container = {
   hidden: { opacity: 0 },
   visible: { opacity: 1, transition: { staggerChildren: 0.12, delayChildren: 0.05 } },
-};
+} satisfies Record<string, unknown>;
 const item = {
   hidden: { opacity: 0, y: 22 },
-  visible: { opacity: 1, y: 0, transition: { duration: 0.6, ease: [0.22, 1, 0.36, 1] } },
-};
+  visible: { opacity: 1, y: 0, transition: { duration: 0.6, ease: 'easeOut' as const } },
+} satisfies Record<string, unknown>;
 
 export function LearningCard({ data, onFollowUp, onReset }: Props) {
   return (
