@@ -49,3 +49,13 @@ test('buildConversationHistoryFromMessages preserves prior turns for memory', ()
     'Benim adım neydi?',
   ]);
 });
+
+test('buildAtlasPrompt instructs Atlas to use a short question-driven structure', () => {
+  const messages = buildAtlasPrompt({ message: 'İş değiştirmeyi düşünüyorum.' });
+  const content = messages[0].content;
+
+  assert.match(content, /kısa, yapılandırılmış/i);
+  assert.match(content, /soru sorar/i);
+  assert.match(content, /risk/i);
+  assert.match(content, /DURUM/);
+});
