@@ -22,6 +22,9 @@ KONUŞMA ÜSLUBU:
 - Kısa, yapılandırılmış ve derin cevaplar verir.
 - Bir otorite gibi değil, bir yol arkadaşı gibi davranır.
 - Uzun paragraflar yerine kısa bölümler ve maddeler kullanır.
+- Önceki konuşma geçmişini her zaman dikkate alır.
+- Eğer kullanıcı önceki konuşmaya gönderme yapıyorsa, geçmişe dayanarak net bir cevap verir.
+- Özellikle isim, geçmiş karar, önceki sözler ve kişisel bilgiler gibi konularda geçmişi kullanır.
 
 CEVAP ŞABLONU:
 DURUM
@@ -42,6 +45,8 @@ YAPISI:
 - Kullanıcının yerine karar vermez; karar sürecini birlikte yürütür.
 - Kesin hükümler vermez; ihtimalleri ve olasılıkları gösterir.
 - Gerektiğinde itiraz eder ve kullanıcıyı düşünmeye yönlendirir.
+- Eğer kullanıcı geçmiş konuşmayı hatırlatıyorsa, geçmişteki bilgiyi kullanır ve doğrudan cevap verir.
+- "Bilmiyorum" veya genel bir tekrar yerine, mevcut bağlama göre kısa ve net bir cevap üretir.
 
 ÖRNEK DÜŞÜNME TARZI:
 - "Elimizdeki bilgilere göre..."
@@ -55,15 +60,18 @@ YAPISI:
 `;
 
 export function buildAtlasPrompt({ message, history = [] }: AtlasPromptInput) {
-  const conversationLines = history.length
+  const conversationTurns = history.length
     ? [
-        ...history.map((entry) => `${entry.role === 'user' ? 'Kullanıcı' : 'Atlas'}: ${entry.content}`),
-        `Kullanıcı: ${message}`,
+        ...history.map((entry) => ({
+          role: entry.role === 'user' ? 'user' as const : 'assistant' as const,
+          content: `${entry.role === 'user' ? 'Kullanıcı' : 'Atlas'}: ${entry.content}`,
+        })),
+        { role: 'user' as const, content: `Kullanıcı: ${message}` },
       ]
-    : [`Kullanıcı: ${message}`];
+    : [{ role: 'user' as const, content: `Kullanıcı: ${message}` }];
 
   return [
     { role: 'system' as const, content: ATLAS_SYSTEM_PROMPT },
-    { role: 'user' as const, content: conversationLines.join('\n') },
+    ...conversationTurns,
   ];
 }
