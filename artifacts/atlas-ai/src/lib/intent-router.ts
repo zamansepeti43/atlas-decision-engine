@@ -28,27 +28,46 @@ import { analyzeDecision, type AnalysisResult } from "./atlas-ai";
  * ─────────────────────────────────────────────────────────────────────────────
  */
 
-async function askBackend(question: string) {
- console.log("askBackend çalıştı");
+interface BackendChatApiResponse {
+  success: boolean;
+  reply: string;
+  history?: ChatHistoryEntry[];
+  error?: string;
+}
+
+async function askBackend(question: string, history: ChatHistoryEntry[] = []) {
+  console.log("askBackend çalıştı");
   console.log("İstek gönderiliyor:", question);
-console.log("HTTP isteği başladı");
- const res = await fetch(
-  "https://atlas-decision-engine-api-server.vercel.app/api/chat", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
+  console.log("Geçmiş mesaj sayısı:", history.length);
+  console.log("HTTP isteği başladı");
+  const res = await fetch(
+    "https://atlas-decision-engine-api-server.vercel.app/api/chat",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        message: question,
+        history,
+      }),
     },
-    body: JSON.stringify({
-      message: question,
-    }),
-  });
+  );
 
   console.log("HTTP Durumu:", res.status);
 
-  const data = await res.json();
+  const data = (await res.json()) as BackendChatApiResponse;
   console.log("Gelen cevap:", data);
 
-  return data.reply;
+  if (!res.ok || !data.success) {
+    throw new Error(data.error ?? `Backend isteği başarısız: ${res.status}`);
+  }
+
+  if (typeof data.reply !== 'string') {
+    throw new Error('Backend yanıtı beklenen formatta değil.');
+  }
+
+  return data;
 }
 // ─── Public types ─────────────────────────────────────────────────────────────
 
@@ -61,10 +80,16 @@ export type IntentType =
   | 'planning'
   | 'problem-solving';
 
+export interface ChatHistoryEntry {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
 export interface ConversationData {
   message: string;
   tone: 'greeting' | 'helpful' | 'acknowledgment';
   followUps: string[];
+  history?: ChatHistoryEntry[];
 }
 
 export interface LearningData {
@@ -760,17 +785,18 @@ function generateProblemSolving(question: string): ProblemSolvingData {
  *
  * Replace the switch body with an LLM call to upgrade from rule-based to AI.
  */
-export async function processQuery(question: string): Promise<AtlasResponseData> {
-  console.log("processQuery çalıştı:", question)
+export async function processQuery(question: string, history: ChatHistoryEntry[] = []): Promise<AtlasResponseData> {
+  console.log("processQuery çalıştı:", question);
 
-  const reply = await askBackend(question);
+  const response = await askBackend(question, history);
 
   return {
     intent: "conversation",
     data: {
-      message: reply,
+      message: response.reply,
       tone: "helpful",
       followUps: [],
+      history: response.history ?? [...history, { role: 'user', content: question }, { role: 'assistant', content: response.reply }],
     },
   };
 }
