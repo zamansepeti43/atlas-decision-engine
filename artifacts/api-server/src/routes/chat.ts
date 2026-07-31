@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { buildAtlasPrompt } from "../lib/atlas-prompt.js";
 import { askGemini } from "../services/gemini.js";
 
 const router = Router();
@@ -16,17 +17,14 @@ router.post("/", async (req, res) => {
       });
     }
 
-    const prompt = history.length
-      ? [
-          ...history.map((entry) => `${entry.role === "user" ? "Kullanıcı" : "Atlas"}: ${entry.content}`),
-          `Kullanıcı: ${message}`,
-        ].join("\n")
-      : message;
+    const orderedHistory = history.length
+      ? [...history, { role: 'user' as const, content: message }]
+      : [{ role: 'user' as const, content: message }];
 
-    const reply = await askGemini(prompt);
+    const promptMessages = buildAtlasPrompt({ message, history: orderedHistory });
+    const reply = await askGemini(promptMessages);
     const responseHistory = [
-      ...history,
-      { role: 'user', content: message },
+      ...orderedHistory,
       { role: 'assistant', content: reply },
     ];
 

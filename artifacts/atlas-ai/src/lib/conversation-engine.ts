@@ -86,6 +86,32 @@ export type ProcessResult =
   | { type: 'clarification'; content: ClarificationContent; context: CollectedContext }
   | { type: 'response'; data: AtlasResponseData; context: CollectedContext };
 
+export interface ConversationHistoryEntry {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
+export function buildConversationHistoryFromMessages(messages: ConversationMessage[]): ConversationHistoryEntry[] {
+  return messages
+    .filter((message) => message.role === 'user' || message.role === 'atlas')
+    .map((message) => ({
+      role: message.role === 'user' ? 'user' as const : 'assistant' as const,
+      content: extractMessageContent(message),
+    }));
+}
+
+function extractMessageContent(message: ConversationMessage): string {
+  if (message.role === 'atlas' && message.richContent?.intent === 'conversation') {
+    return message.richContent.data.message;
+  }
+
+  if (message.role === 'atlas' && message.clarificationData) {
+    return message.clarificationData.intro;
+  }
+
+  return message.content || 'Yanıt oluşturuldu.';
+}
+
 // ─── Product knowledge base (for real scoring) ────────────────────────────────
 
 interface ProductProfile {
@@ -670,7 +696,8 @@ export async function processUserTurn(
   userMessage: string,
   existingCtx: CollectedContext | null,
   isAnsweringClarification: boolean,
-  memory: UserMemory
+  memory: UserMemory,
+  history: Array<{ role: 'user' | 'assistant'; content: string }> = []
 ): Promise<ProcessResult> {
   // Build or enrich context
   let ctx: CollectedContext;
@@ -703,7 +730,7 @@ export async function processUserTurn(
     case 'planning':      data = generateContextualPlanning(ctx); break;
     default: {
       const allText = [ctx.originalQuestion, ...ctx.clarificationAnswers].join('\n');
-      data = await processQuery(allText);
+      data = await processQuery(allText, history);
       break;
     }
   }

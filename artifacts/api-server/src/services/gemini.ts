@@ -4,16 +4,20 @@ const groq = new Groq({
   apiKey: process.env.GROQ_API_KEY!,
 });
 
-export async function askGemini(prompt: string) {
+interface GeminiMessage {
+  role: "system" | "user" | "assistant";
+  content: string;
+}
+
+export async function askGemini(prompt: string | GeminiMessage[]) {
   try {
+    const messages = typeof prompt === "string"
+      ? [{ role: "user" as const, content: prompt }]
+      : prompt;
+
     const completion = await groq.chat.completions.create({
       model: "llama-3.3-70b-versatile",
-      messages: [
-        {
-          role: "user",
-          content: prompt,
-        },
-      ],
+      messages,
     });
 
     return completion.choices[0]?.message?.content ?? "";

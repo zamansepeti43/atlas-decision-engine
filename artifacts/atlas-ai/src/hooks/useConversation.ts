@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react';
 import {
   processUserTurn,
-  buildInitialContext,
+  buildConversationHistoryFromMessages,
   type ConversationMessage,
   type CollectedContext,
 } from '@/lib/conversation-engine';
@@ -58,11 +58,14 @@ export function useConversation() {
       }));
 
       try {
+        const history = buildConversationHistoryFromMessages([...state.messages, userMsg]);
+
         const result = await processUserTurn(
           text,
           state.context,
           state.isAnsweringClarification,
-          memory
+          memory,
+          history
         );
 
         if (result.type === 'clarification') {
