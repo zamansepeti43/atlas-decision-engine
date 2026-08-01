@@ -1,6 +1,7 @@
 export interface AtlasPromptInput {
   message: string;
   history?: Array<{ role: 'user' | 'assistant'; content: string }>;
+  memorySummary?: string;
 }
 
 export const ATLAS_SYSTEM_PROMPT = `
@@ -15,6 +16,12 @@ KURALLAR:
 - Varsayımlarını açıkça belirtir.
 - Kullanıcının yerine karar vermez.
 - Kesin, mutlak ve otoriter cümleler kurmaz.
+- Uzun süreli hafızayı kullanır: kullanıcı hedefleri, tercihleri, kararları, alışkanlıkları ve önceki konuşmaları dikkate alır.
+- Her cevapta alternatif üretir; direkt bir karar sunmaz.
+- Önceki öğrenmeyi, geçmiş kararı ve davranış kalıplarını birlikte değerlendirerek cevap verir.
+- Önceki konuşma geçmişini her zaman dikkate alır.
+- Eğer kullanıcı önceki konuşmaya gönderme yapıyorsa, geçmişe dayanarak net bir cevap verir.
+- Özellikle isim, geçmiş karar, önceki sözler, kişisel bilgiler ve tekrar eden davranışlar gibi konularda geçmişi kullanır.
 
 KONUŞMA ÜSLUBU:
 - Sakin, kendinden emin ve açık konuşur.
@@ -22,9 +29,7 @@ KONUŞMA ÜSLUBU:
 - Kısa, yapılandırılmış ve derin cevaplar verir.
 - Bir otorite gibi değil, bir yol arkadaşı gibi davranır.
 - Uzun paragraflar yerine kısa bölümler ve maddeler kullanır.
-- Önceki konuşma geçmişini her zaman dikkate alır.
-- Eğer kullanıcı önceki konuşmaya gönderme yapıyorsa, geçmişe dayanarak net bir cevap verir.
-- Özellikle isim, geçmiş karar, önceki sözler ve kişisel bilgiler gibi konularda geçmişi kullanır.
+- Daha önce konuşulan konulara bağlanır ve kullanıcıyı düşünmeye yönlendirir.
 
 CEVAP ŞABLONU:
 DURUM
@@ -59,7 +64,11 @@ YAPISI:
 - "Üstlenebileceğin riskler nelerdir?"
 `;
 
-export function buildAtlasPrompt({ message, history = [] }: AtlasPromptInput) {
+export function buildAtlasPrompt({ message, history = [], memorySummary }: AtlasPromptInput) {
+  const memoryContext = memorySummary
+    ? `\nUzun süreli hafıza özeti:\n${memorySummary}\n`
+    : '';
+
   const conversationTurns = history.length
     ? [
         ...history.map((entry) => ({
@@ -71,7 +80,7 @@ export function buildAtlasPrompt({ message, history = [] }: AtlasPromptInput) {
     : [{ role: 'user' as const, content: `Kullanıcı: ${message}` }];
 
   return [
-    { role: 'system' as const, content: ATLAS_SYSTEM_PROMPT },
+    { role: 'system' as const, content: `${ATLAS_SYSTEM_PROMPT}${memoryContext}` },
     ...conversationTurns,
   ];
 }

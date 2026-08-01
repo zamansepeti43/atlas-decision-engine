@@ -35,13 +35,13 @@ interface BackendChatApiResponse {
   error?: string;
 }
 
-async function askBackend(question: string, history: ChatHistoryEntry[] = []) {
+async function askBackend(question: string, history: ChatHistoryEntry[] = [], memorySummary = '') {
   console.log("askBackend çalıştı");
   console.log("İstek gönderiliyor:", question);
   console.log("Geçmiş mesaj sayısı:", history.length);
   console.log("HTTP isteği başladı");
   const res = await fetch(
-    "https://atlas-decision-engine-api-server.vercel.app/api/chat",
+    "https://atlas-decision-engine.vercel.app/api/chat",
     {
       method: "POST",
       headers: {
@@ -50,6 +50,7 @@ async function askBackend(question: string, history: ChatHistoryEntry[] = []) {
       body: JSON.stringify({
         message: question,
         history,
+        memorySummary,
       }),
     },
   );
@@ -785,10 +786,10 @@ function generateProblemSolving(question: string): ProblemSolvingData {
  *
  * Replace the switch body with an LLM call to upgrade from rule-based to AI.
  */
-export async function processQuery(question: string, history: ChatHistoryEntry[] = []): Promise<AtlasResponseData> {
+export async function processQuery(question: string, history: ChatHistoryEntry[] = [], memorySummary = ''): Promise<AtlasResponseData> {
   console.log("processQuery çalıştı:", question);
 
-  const response = await askBackend(question, history);
+  const response = await askBackend(question, history, memorySummary);
 
   return {
     intent: "conversation",

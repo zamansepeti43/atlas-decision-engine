@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { detectIntentSync, processQuery, type AtlasResponseData, type IntentDetectionResult } from '@/lib/intent-router';
+import { detectIntentSync, processQuery, type AtlasResponseData, type IntentDetectionResult, type ChatHistoryEntry } from '@/lib/intent-router';
 import { AnalysisReport } from '@/components/AnalysisReport';
 import { ConversationCard } from '@/components/responses/ConversationCard';
 import { LearningCard } from '@/components/responses/LearningCard';
@@ -9,6 +9,11 @@ import { ResearchCard } from '@/components/responses/ResearchCard';
 import { PlanningCard } from '@/components/responses/PlanningCard';
 import { ProblemSolvingCard } from '@/components/responses/ProblemSolvingCard';
 import { LoadingState } from '@/components/LoadingState';
+import { getMemory, grantMemoryPermission, type UserMemory } from '@/lib/memory';
+import { memorySnapshot } from '@/lib/memory';
+
+const CHAT_HISTORY_STORAGE_KEY = 'atlas_chat_history_v1';
+const CHAT_ARCHIVE_STORAGE_KEY = 'atlas_chat_archive_v1';
 
 const PLACEHOLDER_EXAMPLES = [
   '40.000 TL bütçem var. Hangi telefonu almalıyım?',
@@ -38,6 +43,8 @@ export default function Home() {
   const [intentPreview, setIntentPreview] = useState<IntentDetectionResult | null>(null);
   const [activeLoadingConfig, setActiveLoadingConfig] = useState<IntentDetectionResult | null>(null);
   const [placeholderIdx, setPlaceholderIdx] = useState(0);
+  const [history, setHistory] = useState<ChatHistoryEntry[]>([]);
+  const [memory, setMemory] = useState<UserMemory>(getMemory);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Rotate placeholder text
@@ -60,32 +67,78 @@ export default function Home() {
     return () => clearTimeout(timer);
   }, [question]);
 
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(CHAT_HISTORY_STORAGE_KEY);
+      if (stored) {
+        const parsed = JSON.parse(stored) as ChatHistoryEntry[];
+        if (Array.isArray(parsed)) {
+          setHistory(parsed);
+        }
+      }
+    } catch {
+      // ignore storage issues
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(CHAT_HISTORY_STORAGE_KEY, JSON.stringify(history));
+    } catch {
+      // ignore storage issues
+    }
+  }, [history]);
+
+  const memoryLines = memorySnapshot(memory);
+
   const handleSubmit = async () => {
-   console.log("HANDLE SUBMIT ÇALIŞTI");
     if (!question.trim() || isProcessing) return;
 
     const detected = detectIntentSync(question);
+    const nextUserTurn: ChatHistoryEntry = { role: 'user', content: question };
+    const nextHistory = [...history, nextUserTurn];
+
     setActiveLoadingConfig(detected);
     setIsProcessing(true);
     setResponse(null);
 
     try {
-      console.log("PROCESSQUERY ÇAĞRILACAK");
-const result = await processQuery(question);
-console.log("PROCESSQUERY BİTTİ");
+      const result = await processQuery(question, nextHistory, memoryLines.join('\n'));
+      const assistantContent = result.intent === 'conversation'
+        ? result.data.message
+        : JSON.stringify(result.data);
+      const nextAssistantTurn: ChatHistoryEntry = { role: 'assistant', content: assistantContent };
+      setHistory([...nextHistory, nextAssistantTurn]);
       setResponse(result);
+
+      if (!memory.permissionGranted) {
+        const granted = grantMemoryPermission();
+        setMemory(granted);
+      }
     } catch (err) {
       console.error('Atlas AI error:', err);
     } finally {
       setIsProcessing(false);
+      setQuestion('');
+      setTimeout(() => textareaRef.current?.focus(), 100);
     }
   };
 
   const handleReset = () => {
+    if (history.length > 0) {
+      try {
+        const archive = JSON.parse(localStorage.getItem(CHAT_ARCHIVE_STORAGE_KEY) ?? '[]') as ChatHistoryEntry[][];
+        localStorage.setItem(CHAT_ARCHIVE_STORAGE_KEY, JSON.stringify([...archive, history]));
+      } catch {
+        // ignore storage issues
+      }
+    }
+
     setQuestion('');
     setResponse(null);
     setIntentPreview(null);
     setActiveLoadingConfig(null);
+    setHistory([]);
     setTimeout(() => textareaRef.current?.focus(), 100);
   };
 
@@ -98,15 +151,24 @@ console.log("PROCESSQUERY BİTTİ");
 
   const handleSubmitWith = async (q: string) => {
     const detected = detectIntentSync(q);
+    const nextUserTurn: ChatHistoryEntry = { role: 'user', content: q };
+    const nextHistory = [...history, nextUserTurn];
+
     setActiveLoadingConfig(detected);
     setIsProcessing(true);
     try {
-      const result = await processQuery(q);
+      const result = await processQuery(q, nextHistory, memoryLines.join('\n'));
+      const assistantContent = result.intent === 'conversation'
+        ? result.data.message
+        : JSON.stringify(result.data);
+      const nextAssistantTurn: ChatHistoryEntry = { role: 'assistant', content: assistantContent };
+      setHistory([...nextHistory, nextAssistantTurn]);
       setResponse(result);
     } catch (err) {
       console.error('Atlas AI error:', err);
     } finally {
       setIsProcessing(false);
+      setQuestion('');
     }
   };
 
@@ -155,9 +217,44 @@ console.log("PROCESSQUERY BİTTİ");
                   </span>
                 </h1>
                 <p className="text-lg md:text-xl text-muted-foreground font-light tracking-wide">
-                  Her sorunuz için doğru yanıt biçimi
+                  Seninle birlikte düşünen, konuşmaya devam eden bir düşünce ortağı
                 </p>
               </motion.div>
+
+              {memoryLines.length > 0 && (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  className="mb-8 rounded-2xl border border-primary/20 bg-card/70 p-4 text-sm text-muted-foreground"
+                >
+                  <p className="mb-2 font-semibold text-foreground">Atlas hafızası</p>
+                  <ul className="space-y-1">
+                    {memoryLines.map((line) => (
+                      <li key={line}>• {line}</li>
+                    ))}
+                  </ul>
+                </motion.div>
+              )}
+
+              {history.length > 0 && (
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="mb-8 space-y-3 rounded-2xl border border-border/70 bg-card/60 p-4"
+                >
+                  {history.map((entry, index) => (
+                    <div
+                      key={`${entry.role}-${index}`}
+                      className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${entry.role === 'user' ? 'ml-auto bg-primary text-primary-foreground' : 'bg-muted/60 text-foreground'}`}
+                    >
+                      <p className="text-[10px] uppercase tracking-[0.2em] opacity-70">
+                        {entry.role === 'user' ? 'Sen' : 'Atlas'}
+                      </p>
+                      <p className="mt-1">{entry.content}</p>
+                    </div>
+                  ))}
+                </motion.div>
+              )}
 
               {/* Input */}
               <motion.div
@@ -281,6 +378,27 @@ console.log("PROCESSQUERY BİTTİ");
                   {INTENT_LABELS[response.intent] ?? response.intent}
                 </p>
               </motion.div>
+
+              <div className="mb-6 rounded-2xl border border-border/80 bg-card/70 p-4 text-sm text-muted-foreground">
+                <p className="font-semibold text-foreground">Sohbet akışı</p>
+                <p className="mt-1">Atlas önceki mesajlarını hatırlıyor ve bir sonraki cevapta geçmişi kullanıyor.</p>
+              </div>
+
+              {history.length > 0 && (
+                <div className="mb-6 space-y-3 rounded-2xl border border-border/70 bg-card/60 p-4">
+                  {history.map((entry, index) => (
+                    <div
+                      key={`${entry.role}-${index}`}
+                      className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${entry.role === 'user' ? 'ml-auto bg-primary text-primary-foreground' : 'bg-muted/60 text-foreground'}`}
+                    >
+                      <p className="text-[10px] uppercase tracking-[0.2em] opacity-70">
+                        {entry.role === 'user' ? 'Sen' : 'Atlas'}
+                      </p>
+                      <p className="mt-1">{entry.content}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
 
               {/* Route to correct card */}
               {response.intent === 'decision' && (

@@ -14,6 +14,9 @@ export interface UserMemory {
   goals: string[];
   preferences: Record<string, string>;   // key → value, e.g. "phone_os" → "ios"
   recentTopics: string[];                 // last 5 topics
+  trackedProducts: string[];              // products the user follows
+  opportunitySignals: string[];           // price / review / alternate alerts
+  behavioralPatterns: string[];           // shadow-mode observations
   permissionGranted: boolean;
   lastUpdated: string;
 }
@@ -25,6 +28,9 @@ const DEFAULT_MEMORY: UserMemory = {
   goals: [],
   preferences: {},
   recentTopics: [],
+  trackedProducts: [],
+  opportunitySignals: [],
+  behavioralPatterns: [],
   permissionGranted: false,
   lastUpdated: new Date().toISOString(),
 };
@@ -47,6 +53,9 @@ export function updateMemory(updates: Partial<UserMemory>): UserMemory {
     preferences: { ...current.preferences, ...(updates.preferences ?? {}) },
     goals: updates.goals ?? current.goals,
     recentTopics: updates.recentTopics ?? current.recentTopics,
+    trackedProducts: updates.trackedProducts ?? current.trackedProducts,
+    opportunitySignals: updates.opportunitySignals ?? current.opportunitySignals,
+    behavioralPatterns: updates.behavioralPatterns ?? current.behavioralPatterns,
     lastUpdated: new Date().toISOString(),
   };
   try {
@@ -81,6 +90,9 @@ export function extractAndSave(facts: {
   topic?: string;
   occupation?: string;
   preference?: { key: string; value: string };
+  trackedProduct?: string;
+  signal?: string;
+  pattern?: string;
 }): void {
   const mem = getMemory();
   if (!mem.permissionGranted) return;
@@ -103,6 +115,18 @@ export function extractAndSave(facts: {
     };
   }
 
+  if (facts.trackedProduct) {
+    updates.trackedProducts = [...new Set([facts.trackedProduct, ...mem.trackedProducts])].slice(0, 8);
+  }
+
+  if (facts.signal) {
+    updates.opportunitySignals = [...new Set([facts.signal, ...mem.opportunitySignals])].slice(0, 8);
+  }
+
+  if (facts.pattern) {
+    updates.behavioralPatterns = [...new Set([facts.pattern, ...mem.behavioralPatterns])].slice(0, 8);
+  }
+
   updateMemory(updates);
 }
 
@@ -113,5 +137,8 @@ export function memorySnapshot(mem: UserMemory): string[] {
   if (mem.location) lines.push(`Konum: ${mem.location}`);
   if (mem.occupation) lines.push(`Meslek: ${mem.occupation}`);
   if (mem.recentTopics.length > 0) lines.push(`Son konular: ${mem.recentTopics.join(', ')}`);
+  if (mem.trackedProducts.length > 0) lines.push(`Takip edilen ürünler: ${mem.trackedProducts.join(', ')}`);
+  if (mem.opportunitySignals.length > 0) lines.push(`Fırsat sinyalleri: ${mem.opportunitySignals.join(', ')}`);
+  if (mem.behavioralPatterns.length > 0) lines.push(`Davranış kalıpları: ${mem.behavioralPatterns.join(', ')}`);
   return lines;
 }

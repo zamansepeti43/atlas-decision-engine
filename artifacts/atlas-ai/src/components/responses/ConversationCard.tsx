@@ -69,13 +69,9 @@ export function ConversationCard({ data, onFollowUp, onReset }: Props) {
         transition={{ delay: 0.6 }}
         className="flex justify-center pt-2"
       >
-        <button
-          onClick={onReset}
-          className="rounded-xl bg-primary px-4 py-2 text-primary-foreground"
-          data-testid="button-new-question"
-        >
-          Yeni bir soru sor
-        </button>
+        <p className="text-center text-sm text-muted-foreground">
+          Atlas bu konuşmayı devam ettiriyor; yeni bir konu açmak istersen mesajını yazmaya devam edebilirsin.
+        </p>
       </motion.div>
     </motion.div>
   );

@@ -6,9 +6,10 @@ const router = Router();
 
 router.post("/", async (req, res) => {
   try {
-    const { message, history = [] } = req.body as {
+    const { message, history = [], memorySummary = "" } = req.body as {
       message?: string;
       history?: Array<{ role: "user" | "assistant"; content: string }>;
+      memorySummary?: string;
     };
 
     if (!message) {
@@ -21,7 +22,11 @@ router.post("/", async (req, res) => {
       ? [...history, { role: 'user' as const, content: message }]
       : [{ role: 'user' as const, content: message }];
 
-    const promptMessages = buildAtlasPrompt({ message, history: orderedHistory });
+    const promptMessages = buildAtlasPrompt({
+      message,
+      history: orderedHistory,
+      memorySummary,
+    });
     const reply = await askGemini(promptMessages);
     const responseHistory = [
       ...orderedHistory,

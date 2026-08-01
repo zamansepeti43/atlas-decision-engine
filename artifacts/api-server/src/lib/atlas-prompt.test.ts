@@ -61,6 +61,19 @@ test('buildAtlasPrompt instructs Atlas to use a short question-driven structure'
   assert.match(content, /DURUM/);
 });
 
+test('buildAtlasPrompt includes long-term memory guidance and structured alternatives', () => {
+  const messages = buildAtlasPrompt({
+    message: 'Telefon almayı düşünüyorum.',
+    memorySummary: 'Hedefler: iyi fiyat/performans. Tercihler: iOS, uzun pil ömrü.',
+  });
+  const content = messages[0].content;
+
+  assert.match(content, /uzun süreli hafıza/i);
+  assert.match(content, /alternatif/i);
+  assert.match(content, /risk/i);
+  assert.match(content, /öğrenmeyi/i);
+});
+
 test('buildAtlasPrompt preserves prior turns as structured memory', () => {
   const messages = buildAtlasPrompt({
     message: 'Adım neydi?',
