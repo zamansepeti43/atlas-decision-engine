@@ -1,9 +1,12 @@
 
 packages:
-  - artifacts/*
+  - artifacts/api-server
+  - artifacts/atlas-ai
   - lib/*
   - lib/integrations/*
   - scripts
+
+linkWorkspacePackages: true
 
 autoInstallPeers: false
 

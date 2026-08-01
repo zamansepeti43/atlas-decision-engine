@@ -4,7 +4,7 @@ import { askGemini } from "../services/gemini.js";
 
 const router = Router();
 
-router.post("/", async (req, res) => {
+router.post("/", async (req: { body: { message?: string; history?: Array<{ role: "user" | "assistant"; content: string }>; memorySummary?: string } }, res: { status: (code: number) => { json: (body: unknown) => unknown }; json: (body: unknown) => unknown }) => {
   try {
     const { message, history = [], memorySummary = "" } = req.body as {
       message?: string;

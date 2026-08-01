@@ -7,17 +7,20 @@
     },
     {
       "src": "artifacts/atlas-ai/package.json",
-      "use": "@vercel/static"
+      "use": "@vercel/static",
+      "config": {
+        "distDir": "dist"
+      }
     }
   ],
-  "routes": [
+  "rewrites": [
     {
-      "src": "/api/(.*)",
-      "dest": "/artifacts/api-server/api/index.ts"
+      "source": "/api/(.*)",
+      "destination": "/api/index"
     },
     {
-      "src": "/(.*)",
-      "dest": "/artifacts/atlas-ai/dist/$1"
+      "source": "/(.*)",
+      "destination": "/index.html"
     }
   ],
   "outputDirectory": "artifacts/atlas-ai/dist"
