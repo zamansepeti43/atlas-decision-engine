@@ -17,6 +17,12 @@ export async function askGemini(prompt: string | GeminiMessage[]) {
       ? [{ role: "user" as const, content: prompt }]
       : prompt;
 
+    if (!process.env.GROQ_API_KEY) {
+      console.warn("GROQ_API_KEY is not configured; using a local fallback reply.");
+      const lastUserMessage = [...messages].reverse().find((message) => message.role === "user")?.content ?? "Mesaj";
+      return `Bu mesaj için Groq anahtarı tanımlı olmadığı için yerel yanıt kullanıldı: ${lastUserMessage}`;
+    }
+
     const completion = await groq.chat.completions.create({
       model: DEFAULT_MODEL,
       messages,

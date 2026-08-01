@@ -35,25 +35,36 @@ interface BackendChatApiResponse {
   error?: string;
 }
 
+function buildApiChatUrl(): string {
+  const configuredBase = (import.meta.env.VITE_API_URL ?? '').trim().replace(/\/$/, '');
+
+  if (!configuredBase) return '/api/chat';
+
+  if (configuredBase.includes('/api')) {
+    return `${configuredBase}/chat`;
+  }
+
+  return `${configuredBase}/api/chat`;
+}
+
 async function askBackend(question: string, history: ChatHistoryEntry[] = [], memorySummary = '') {
   console.log("askBackend çalıştı");
   console.log("İstek gönderiliyor:", question);
   console.log("Geçmiş mesaj sayısı:", history.length);
+  const apiUrl = buildApiChatUrl();
+  console.log("API URL:", apiUrl);
   console.log("HTTP isteği başladı");
-  const res = await fetch(
-    "https://atlas-decision-engine.vercel.app/api/chat",
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        message: question,
-        history,
-        memorySummary,
-      }),
+  const res = await fetch(apiUrl, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
     },
-  );
+    body: JSON.stringify({
+      message: question,
+      history,
+      memorySummary,
+    }),
+  });
 
   console.log("HTTP Durumu:", res.status);
 

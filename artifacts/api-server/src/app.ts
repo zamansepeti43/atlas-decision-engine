@@ -27,16 +27,24 @@ app.use(
   })
 );
 
-const allowedOrigins = [
+const configuredOrigins = (process.env.ALLOWED_ORIGINS ?? "")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
+const allowedOrigins = new Set([
   "https://atlasai-puce.vercel.app",
+  "https://atlas-decision-engine-five.vercel.app",
+  "https://atlas-decision-engine-o509dknoh-tanahmetat-4997s-projects.vercel.app",
   "http://localhost:5173",
   "http://127.0.0.1:5173",
-];
+  ...configuredOrigins,
+]);
 
 app.use(
   cors({
     origin(origin, callback) {
-      if (!origin || allowedOrigins.includes(origin)) {
+      if (!origin || allowedOrigins.has(origin) || /\.vercel\.app$/i.test(origin)) {
         callback(null, true);
         return;
       }
