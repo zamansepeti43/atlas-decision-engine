@@ -797,18 +797,42 @@ function generateProblemSolving(question: string): ProblemSolvingData {
  *
  * Replace the switch body with an LLM call to upgrade from rule-based to AI.
  */
+const MAX_RESPONSE_LENGTH = 300;
+
+function truncateAssistantReply(reply: string): string {
+  const trimmed = reply.trim().replace(/\s+/g, ' ');
+  if (trimmed.length <= MAX_RESPONSE_LENGTH) return trimmed;
+  const cutPoint = Math.max(
+    trimmed.lastIndexOf('.', MAX_RESPONSE_LENGTH),
+    trimmed.lastIndexOf('!', MAX_RESPONSE_LENGTH),
+    trimmed.lastIndexOf('?', MAX_RESPONSE_LENGTH),
+    MAX_RESPONSE_LENGTH
+  );
+  return `${trimmed.slice(0, cutPoint).trim()}...`;
+}
+
+function normalizeAssistantReply(reply: string, history: ChatHistoryEntry[]): string {
+  const trimmed = reply.trim();
+  const lastAssistant = [...history].reverse().find((entry) => entry.role === 'assistant');
+  if (lastAssistant && lastAssistant.content.trim() === trimmed) {
+    return `${truncateAssistantReply(trimmed)} (daha fazla bilgiye ihtiyacım var)`;
+  }
+  return truncateAssistantReply(trimmed);
+}
+
 export async function processQuery(question: string, history: ChatHistoryEntry[] = [], memorySummary = ''): Promise<AtlasResponseData> {
   console.log("processQuery çalıştı:", question);
 
   const response = await askBackend(question, history, memorySummary);
+  const normalized = normalizeAssistantReply(response.reply, history);
 
   return {
     intent: "conversation",
     data: {
-      message: response.reply,
+      message: normalized,
       tone: "helpful",
       followUps: [],
-      history: response.history ?? [...history, { role: 'user', content: question }, { role: 'assistant', content: response.reply }],
+      history: response.history ?? [...history, { role: 'user', content: question }, { role: 'assistant', content: normalized }],
     },
   };
 }

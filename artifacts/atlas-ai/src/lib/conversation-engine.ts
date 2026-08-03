@@ -297,23 +297,34 @@ function buildDecisionClarification(question: string, ctx: CollectedContext): Cl
   const questions: ClarificationQuestion[] = [];
 
   if (isPhone) {
-    questions.push({ id: 'use', text: 'Bu telefonu öncelikli olarak ne için kullanacaksınız?', quickAnswers: ['Fotoğraf ve video', 'Oyun', 'İş ve verimlilik', 'Sosyal medya', 'Genel kullanım'] });
-    if (!ctx.budget) questions.push({ id: 'budget', text: 'Yaklaşık bütçeniz ne kadar?', quickAnswers: ['10-20 bin TL', '20-35 bin TL', '35-55 bin TL', '55 bin TL üzeri'] });
+    if (!ctx.budget) {
+      questions.push({ id: 'budget', text: 'Yaklaşık bütçeniz ne kadar?', quickAnswers: ['10-20 bin TL', '20-35 bin TL', '35-55 bin TL', '55 bin TL üzeri'] });
+    } else {
+      questions.push({ id: 'use', text: 'Bu telefonu öncelikli olarak ne için kullanacaksınız?', quickAnswers: ['Fotoğraf ve video', 'Oyun', 'İş ve verimlilik', 'Sosyal medya', 'Genel kullanım'] });
+    }
   } else if (isLaptop) {
-    questions.push({ id: 'use', text: 'Bilgisayarı ağırlıklı ne için kullanacaksınız?', quickAnswers: ['Yazılım / Kod', 'Grafik ve video', 'Ofis işleri', 'Oyun', 'Günlük kullanım'] });
-    if (!ctx.budget) questions.push({ id: 'budget', text: 'Bütçenizi paylaşabilir misiniz?', quickAnswers: ['15-30 bin TL', '30-50 bin TL', '50-80 bin TL', '80 bin TL üzeri'] });
+    if (!ctx.budget) {
+      questions.push({ id: 'budget', text: 'Bütçenizi paylaşabilir misiniz?', quickAnswers: ['15-30 bin TL', '30-50 bin TL', '50-80 bin TL', '80 bin TL üzeri'] });
+    } else {
+      questions.push({ id: 'use', text: 'Bilgisayarı ağırlıklı ne için kullanacaksınız?', quickAnswers: ['Yazılım / Kod', 'Grafik ve video', 'Ofis işleri', 'Oyun', 'Günlük kullanım'] });
+    }
   } else if (isCar) {
-    questions.push({ id: 'priority', text: 'Araçta en önemli faktörünüz hangisi?', quickAnswers: ['Yakıt ekonomisi', 'Güvenilirlik', 'Konfor', 'Performans', 'Fiyat/değer', 'Çevre dostu'] });
-    if (!ctx.budget) questions.push({ id: 'budget', text: 'Bütçe aralığınız nedir?' });
+    if (!ctx.budget) {
+      questions.push({ id: 'budget', text: 'Bütçe aralığınız nedir?' });
+    } else {
+      questions.push({ id: 'priority', text: 'Araçta en önemli faktörünüz hangisi?', quickAnswers: ['Yakıt ekonomisi', 'Güvenilirlik', 'Konfor', 'Performans', 'Fiyat/değer', 'Çevre dostu'] });
+    }
   } else if (isFinance) {
     questions.push({ id: 'risk', text: 'Risk toleransınız nasıl?', quickAnswers: ['Çok düşük (koruma)', 'Düşük', 'Orta', 'Yüksek (getiri öncelikli)'] });
-    questions.push({ id: 'horizon', text: 'Yatırım vade hedefiniz?', quickAnswers: ['6 ay', '1-2 yıl', '3-5 yıl', '5+ yıl'] });
   } else {
-    questions.push({ id: 'priority', text: 'Bu karar için en önemli öncelikleriniz neler?' });
-    if (!ctx.budget) questions.push({ id: 'budget', text: 'Bütçe veya kaynak kısıtlamanız var mı?' });
+    if (!ctx.budget) {
+      questions.push({ id: 'budget', text: 'Bütçe veya kaynak kısıtlamanız var mı?' });
+    } else {
+      questions.push({ id: 'priority', text: 'Bu karar için en önemli öncelikleriniz neler?' });
+    }
   }
 
-  return { intro: 'Daha doğru bir analiz yapabilmem için birkaç şeyi anlamak istiyorum:', questions };
+  return { intro: 'Daha doğru bir analiz yapabilmem için bir bilgiye ihtiyacım var:', questions };
 }
 
 export function assessClarificationNeeds(
@@ -340,10 +351,9 @@ export function assessClarificationNeeds(
     return isVague ? {
       needed: true,
       content: {
-        intro: 'Bu yazıyı en iyi şekilde hazırlayabilmem için:',
+        intro: 'Bu yazıyı en iyi şekilde hazırlayabilmem için bir bilgiye ihtiyacım var:',
         questions: [
           { id: 'recipient', text: 'Kime veya hangi amaçla yazıyoruz?' },
-          { id: 'tone', text: 'Hangi ton uygun?', quickAnswers: ['Resmi', 'Samimi', 'Kısa ve net', 'Detaylı'] },
         ],
       },
     } : { needed: false };
@@ -355,10 +365,9 @@ export function assessClarificationNeeds(
     return (!hasTimeline && !isDetailed) ? {
       needed: true,
       content: {
-        intro: 'Gerçekçi bir plan hazırlayabilmem için:',
+        intro: 'Gerçekçi bir plan hazırlayabilmem için bir bilgiye ihtiyacım var:',
         questions: [
           { id: 'timeline', text: 'Bu hedefiniz için ne kadar süreniz var?', quickAnswers: ['1 hafta', '1 ay', '3 ay', '6 ay', '1 yıl'] },
-          { id: 'experience', text: 'Mevcut deneyim seviyeniz?', quickAnswers: ['Hiç deneyimim yok', 'Temel bilgilerim var', 'Orta seviyedeyim'] },
         ],
       },
     } : { needed: false };

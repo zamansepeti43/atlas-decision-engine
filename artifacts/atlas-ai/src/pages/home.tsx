@@ -67,48 +67,51 @@ export default function Home() {
     return () => clearTimeout(timer);
   }, [question]);
 
-  useEffect(() => {
-    try {
-      const stored = localStorage.getItem(CHAT_HISTORY_STORAGE_KEY);
-      if (stored) {
-        const parsed = JSON.parse(stored) as ChatHistoryEntry[];
-        if (Array.isArray(parsed)) {
-          setHistory(parsed);
-        }
-      }
-    } catch {
-      // ignore storage issues
-    }
-  }, []);
+ useEffect(() => {
+  localStorage.removeItem(CHAT_HISTORY_STORAGE_KEY);
+  setHistory([]);
+}, []);
 
   useEffect(() => {
     try {
-      localStorage.setItem(CHAT_HISTORY_STORAGE_KEY, JSON.stringify(history));
-    } catch {
-      // ignore storage issues
+      if (history.length > 0) {
+    localStorage.setItem(
+        CHAT_HISTORY_STORAGE_KEY,
+        JSON.stringify(history)
+    );
     }
-  }, [history]);
+  } catch {
+    // ignore storage issues
+  }
+}, [history]);
 
   const memoryLines = memorySnapshot(memory);
 
   const handleSubmit = async () => {
-    if (!question.trim() || isProcessing) return;
+    const trimmedQuestion = question.trim();
+    if (!trimmedQuestion || isProcessing) return;
 
-    const detected = detectIntentSync(question);
-    const nextUserTurn: ChatHistoryEntry = { role: 'user', content: question };
-    const nextHistory = [...history, nextUserTurn];
+    const detected = detectIntentSync(trimmedQuestion);
+    const nextUserTurn: ChatHistoryEntry = { role: 'user', content: trimmedQuestion };
 
     setActiveLoadingConfig(detected);
     setIsProcessing(true);
-    setResponse(null);
 
     try {
-      const result = await processQuery(question, nextHistory, memoryLines.join('\n'));
+      const result = await processQuery(trimmedQuestion, [...history, nextUserTurn], memoryLines.join('\n'));
       const assistantContent = result.intent === 'conversation'
         ? result.data.message
         : JSON.stringify(result.data);
       const nextAssistantTurn: ChatHistoryEntry = { role: 'assistant', content: assistantContent };
-      setHistory([...nextHistory, nextAssistantTurn]);
+
+      setHistory((prevHistory) => {
+        const nextHistory = [...prevHistory, nextUserTurn];
+        const lastAssistant = prevHistory[prevHistory.length - 1];
+        if (lastAssistant?.role === 'assistant' && lastAssistant.content === assistantContent) {
+          return nextHistory;
+        }
+        return [...nextHistory, nextAssistantTurn];
+      });
       setResponse(result);
 
       if (!memory.permissionGranted) {
@@ -144,25 +147,34 @@ export default function Home() {
 
   const handleFollowUp = (q: string) => {
     setQuestion(q);
-    setResponse(null);
     setIntentPreview(null);
-    setTimeout(() => handleSubmitWith(q), 50);
+    handleSubmitWith(q);
   };
 
   const handleSubmitWith = async (q: string) => {
-    const detected = detectIntentSync(q);
-    const nextUserTurn: ChatHistoryEntry = { role: 'user', content: q };
-    const nextHistory = [...history, nextUserTurn];
+    const trimmedQuestion = q.trim();
+    if (!trimmedQuestion || isProcessing) return;
+
+    const detected = detectIntentSync(trimmedQuestion);
+    const nextUserTurn: ChatHistoryEntry = { role: 'user', content: trimmedQuestion };
 
     setActiveLoadingConfig(detected);
     setIsProcessing(true);
     try {
-      const result = await processQuery(q, nextHistory, memoryLines.join('\n'));
+      const result = await processQuery(trimmedQuestion, [...history, nextUserTurn], memoryLines.join('\n'));
       const assistantContent = result.intent === 'conversation'
         ? result.data.message
         : JSON.stringify(result.data);
       const nextAssistantTurn: ChatHistoryEntry = { role: 'assistant', content: assistantContent };
-      setHistory([...nextHistory, nextAssistantTurn]);
+
+      setHistory((prevHistory) => {
+        const nextHistory = [...prevHistory, nextUserTurn];
+        const lastAssistant = prevHistory[prevHistory.length - 1];
+        if (lastAssistant?.role === 'assistant' && lastAssistant.content === assistantContent) {
+          return nextHistory;
+        }
+        return [...nextHistory, nextAssistantTurn];
+      });
       setResponse(result);
     } catch (err) {
       console.error('Atlas AI error:', err);
@@ -179,9 +191,9 @@ export default function Home() {
     }
   };
 
-  const showInput = !response && !isProcessing;
+  const showInput = true;
   const showLoading = isProcessing;
-  const showResponse = !!response && !isProcessing;
+  const showResponse = !!response;
 
   return (
     <div className="min-h-[100dvh] w-full bg-background relative overflow-hidden">
@@ -273,6 +285,7 @@ export default function Home() {
                     className="w-full min-h-[160px] bg-card/50 backdrop-blur-sm border-2 border-border rounded-2xl px-6 py-5 text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-primary transition-all duration-300 resize-none text-lg leading-relaxed"
                     data-testid="input-question"
                     autoFocus
+                    disabled={isProcessing}
                   />
 
                   {/* Live intent badge */}
@@ -299,10 +312,10 @@ export default function Home() {
 
                 <motion.button
                   onClick={handleSubmit}
-                  disabled={!question.trim()}
+                  disabled={!question.trim() || isProcessing}
                   className="w-full py-5 rounded-2xl font-semibold text-lg text-primary-foreground bg-gradient-to-r from-primary via-chart-2 to-primary transition-all duration-300 disabled:opacity-40 disabled:cursor-not-allowed relative overflow-hidden group"
-                  whileHover={{ scale: question.trim() ? 1.015 : 1 }}
-                  whileTap={{ scale: question.trim() ? 0.98 : 1 }}
+                  whileHover={{ scale: question.trim() && !isProcessing ? 1.015 : 1 }}
+                  whileTap={{ scale: question.trim() && !isProcessing ? 0.98 : 1 }}
                   data-testid="button-submit"
                   style={{ backgroundSize: '200% 100%' }}
                 >
