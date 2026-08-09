@@ -10,6 +10,8 @@ servers:
 tags:
   - name: health
     description: Health operations
+  - name: chat
+    description: Atlas decision assistant operations
 paths:
   /healthz:
     get:
@@ -24,6 +26,36 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+  /chat:
+    post:
+      operationId: atlasChat
+      tags: [chat]
+      summary: Plan, optionally research, and synthesize an Atlas response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChatRequest"
+      responses:
+        "200":
+          description: Structured Atlas response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChatResponse"
+        "400":
+          description: Invalid chat request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChatErrorResponse"
+        "503":
+          description: AI synthesis unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChatErrorResponse"
 components:
   schemas:
     HealthStatus:
@@ -33,4 +65,210 @@ components:
           type: string
       required:
         - status
+    ChatHistoryEntry:
+      type: object
+      properties:
+        role:
+          type: string
+          enum: [user, assistant]
+        content:
+          type: string
+      required: [role, content]
+    ChatRequest:
+      type: object
+      properties:
+        message:
+          type: string
+          minLength: 1
+          maxLength: 4000
+        history:
+          type: array
+          maxItems: 20
+          items:
+            $ref: "#/components/schemas/ChatHistoryEntry"
+        memorySummary:
+          type: string
+          maxLength: 4000
+        priorProducts:
+          type: array
+          maxItems: 10
+          items:
+            $ref: "#/components/schemas/GroundedProduct"
+      required: [message]
+    AtlasIntent:
+      type: string
+      enum: [conversation, decision, learning, writing, research, planning, problem-solving]
+    AtlasOperation:
+      type: string
+      enum: [respond, web_research, product_search, price_comparison]
+    WebSource:
+      type: object
+      properties:
+        title: { type: string }
+        url: { type: string, format: uri }
+        snippet: { type: string }
+        publishedDate: { type: string }
+        domain: { type: string }
+        retrievedAt: { type: string, format: date-time }
+      required: [title, url, snippet, domain, retrievedAt]
+    ScoreComponents:
+      type: object
+      properties:
+        budgetFit: { type: number }
+        preferenceFit: { type: number }
+        useCaseFit: { type: number }
+        featureFit: { type: number }
+        valueScore: { type: number }
+      required: [budgetFit, preferenceFit, useCaseFit, featureFit, valueScore]
+    ProductSource:
+      type: object
+      properties:
+        title: { type: string }
+        url: { type: string, format: uri }
+        domain: { type: string }
+      required: [title, url, domain]
+    GroundedProduct:
+      type: object
+      properties:
+        title: { type: string }
+        brand: { type: string }
+        model: { type: string }
+        url: { type: string, format: uri }
+        priceTRY: { type: number, minimum: 0 }
+        currency: { type: string, enum: [TRY] }
+        seller: { type: string }
+        source:
+          $ref: "#/components/schemas/ProductSource"
+        features:
+          type: array
+          items: { type: string }
+        availability:
+          type: string
+          enum: [in_stock, out_of_stock]
+        retrievedAt: { type: string, format: date-time }
+      required: [title, url, priceTRY, currency, source, features, retrievedAt]
+    RankedProduct:
+      allOf:
+        - $ref: "#/components/schemas/GroundedProduct"
+        - type: object
+          properties:
+            score: { type: number, minimum: 0, maximum: 100 }
+            scoreComponents:
+              $ref: "#/components/schemas/ScoreComponents"
+            confidence: { type: number, minimum: 0, maximum: 1 }
+            matchedTerms:
+              type: array
+              items: { type: string }
+          required: [score, scoreComponents, confidence, matchedTerms]
+    DecisionResult:
+      type: object
+      properties:
+        recommendedProductUrl: { type: string, format: uri }
+        recommendation:
+          $ref: "#/components/schemas/RankedProduct"
+        alternatives:
+          type: array
+          items: { $ref: "#/components/schemas/RankedProduct" }
+        reasons:
+          type: array
+          items: { type: string }
+        tradeoffs:
+          type: array
+          items: { type: string }
+        confidence: { type: number, minimum: 0, maximum: 1 }
+        summary: { type: string }
+        rankedProducts:
+          type: array
+          items:
+            $ref: "#/components/schemas/RankedProduct"
+      required: [alternatives, reasons, tradeoffs, confidence, summary, rankedProducts]
+    ComparisonResult:
+      type: object
+      properties:
+        criteria:
+          type: array
+          items:
+            type: string
+            enum: [budgetFit, preferenceFit, useCaseFit, featureFit, valueScore]
+        products:
+          type: array
+          items: { $ref: "#/components/schemas/RankedProduct" }
+      required: [criteria, products]
+    MemoryCandidate:
+      type: object
+      properties:
+        key:
+          type: string
+          enum: [budgetTRY, preference, useCase]
+        value:
+          oneOf:
+            - type: string
+            - type: number
+        reason: { type: string }
+      required: [key, value, reason]
+    ResearchStatus:
+      type: object
+      properties:
+        requested: { type: boolean }
+        status:
+          type: string
+          enum: [not_requested, completed, unavailable, failed]
+        error: { type: string }
+        provider: { type: string, enum: [tavily] }
+        httpStatus: { type: integer }
+        retrievedAt: { type: string, format: date-time }
+      required: [requested, status]
+    ChatResponse:
+      type: object
+      properties:
+        success: { type: boolean, const: true }
+        message: { type: string }
+        reply: { type: string, description: Legacy alias for message }
+        intent:
+          $ref: "#/components/schemas/AtlasIntent"
+        operation:
+          $ref: "#/components/schemas/AtlasOperation"
+        sources:
+          type: array
+          items: { $ref: "#/components/schemas/WebSource" }
+        products:
+          type: array
+          items: { $ref: "#/components/schemas/RankedProduct" }
+        comparison:
+          $ref: "#/components/schemas/ComparisonResult"
+        decision:
+          $ref: "#/components/schemas/DecisionResult"
+        confidence: { type: number, minimum: 0, maximum: 1 }
+        memoryCandidates:
+          type: array
+          items: { $ref: "#/components/schemas/MemoryCandidate" }
+        memoryUpdated: { type: boolean }
+        followUpQuestion: { type: string }
+        research:
+          $ref: "#/components/schemas/ResearchStatus"
+        history:
+          type: array
+          items: { $ref: "#/components/schemas/ChatHistoryEntry" }
+      required: [success, message, reply, intent, operation, sources, products, confidence, memoryCandidates, research, history]
+    ChatErrorResponse:
+      type: object
+      properties:
+        success: { type: boolean, const: false }
+        error: { type: string }
+        message: { type: string }
+        intent:
+          $ref: "#/components/schemas/AtlasIntent"
+        sources:
+          type: array
+          items: { $ref: "#/components/schemas/WebSource" }
+        products:
+          type: array
+          items: { $ref: "#/components/schemas/RankedProduct" }
+        confidence: { type: number, minimum: 0, maximum: 1 }
+        memoryCandidates:
+          type: array
+          items: { $ref: "#/components/schemas/MemoryCandidate" }
+        research:
+          $ref: "#/components/schemas/ResearchStatus"
+      required: [success, error, message, sources, products, confidence, memoryCandidates, research]
 

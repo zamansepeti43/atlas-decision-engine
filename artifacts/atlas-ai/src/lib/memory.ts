@@ -70,6 +70,10 @@ export function grantMemoryPermission(): UserMemory {
   return updateMemory({ permissionGranted: true });
 }
 
+export function revokeMemoryPermission(): UserMemory {
+  return updateMemory({ permissionGranted: false });
+}
+
 export function clearMemory(): UserMemory {
   const cleared = { ...DEFAULT_MEMORY };
   try {
@@ -130,12 +134,52 @@ export function extractAndSave(facts: {
   updateMemory(updates);
 }
 
+export interface BackendMemoryCandidate {
+  key: 'budgetTRY' | 'preference' | 'useCase';
+  value: string | number;
+  reason: string;
+}
+
+const MAX_MEMORY_VALUE_LENGTH = 120;
+
+/** Applies only the backend's allow-listed, non-sensitive memory fields. */
+export function applyMemoryCandidates(candidates: BackendMemoryCandidate[]): UserMemory {
+  const memory = getMemory();
+  if (!memory.permissionGranted || !Array.isArray(candidates)) return memory;
+
+  const updates: Partial<UserMemory> = {};
+  const preferences = { ...memory.preferences };
+
+  for (const candidate of candidates) {
+    if (!candidate || typeof candidate.reason !== 'string') continue;
+
+    if (candidate.key === 'budgetTRY' && typeof candidate.value === 'number' && Number.isFinite(candidate.value) && candidate.value > 0) {
+      updates.budget = `${Math.round(candidate.value).toLocaleString('tr-TR')} TL`;
+      continue;
+    }
+
+    if ((candidate.key === 'preference' || candidate.key === 'useCase') && typeof candidate.value === 'string') {
+      const value = candidate.value.trim().slice(0, MAX_MEMORY_VALUE_LENGTH);
+      if (!value || /password|parola|şifre|token|secret|api.?key|kart numarası/i.test(value)) continue;
+      preferences[candidate.key === 'preference' ? 'preference' : 'useCase'] = value;
+    }
+  }
+
+  if (Object.keys(preferences).length !== Object.keys(memory.preferences).length ||
+      Object.entries(preferences).some(([key, value]) => memory.preferences[key] !== value)) {
+    updates.preferences = preferences;
+  }
+
+  return Object.keys(updates).length > 0 ? updateMemory(updates) : memory;
+}
+
 /** Returns a human-readable summary of what Atlas remembers, for display. */
 export function memorySnapshot(mem: UserMemory): string[] {
   const lines: string[] = [];
   if (mem.budget) lines.push(`Bütçe: ${mem.budget}`);
   if (mem.location) lines.push(`Konum: ${mem.location}`);
   if (mem.occupation) lines.push(`Meslek: ${mem.occupation}`);
+  if (Object.keys(mem.preferences).length > 0) lines.push(`Tercihler: ${Object.values(mem.preferences).join(', ')}`);
   if (mem.recentTopics.length > 0) lines.push(`Son konular: ${mem.recentTopics.join(', ')}`);
   if (mem.trackedProducts.length > 0) lines.push(`Takip edilen ürünler: ${mem.trackedProducts.join(', ')}`);
   if (mem.opportunitySignals.length > 0) lines.push(`Fırsat sinyalleri: ${mem.opportunitySignals.join(', ')}`);

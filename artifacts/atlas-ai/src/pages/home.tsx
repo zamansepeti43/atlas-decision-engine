@@ -1,445 +1,123 @@
-import { useState, useEffect, useRef } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { detectIntentSync, processQuery, type AtlasResponseData, type IntentDetectionResult, type ChatHistoryEntry } from '@/lib/intent-router';
-import { AnalysisReport } from '@/components/AnalysisReport';
-import { ConversationCard } from '@/components/responses/ConversationCard';
-import { LearningCard } from '@/components/responses/LearningCard';
-import { WritingCard } from '@/components/responses/WritingCard';
-import { ResearchCard } from '@/components/responses/ResearchCard';
-import { PlanningCard } from '@/components/responses/PlanningCard';
-import { ProblemSolvingCard } from '@/components/responses/ProblemSolvingCard';
-import { LoadingState } from '@/components/LoadingState';
-import { getMemory, grantMemoryPermission, type UserMemory } from '@/lib/memory';
+import { useEffect, useRef, useState } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
+import { Brain, LoaderCircle, MemoryStick, RotateCcw, Send, Trash2 } from 'lucide-react';
+import { ClarificationCard } from '@/components/chat/ClarificationCard';
+import { EmptyState } from '@/components/chat/EmptyState';
+import { GroundedResults } from '@/components/chat/GroundedResults';
+import { useConversation } from '@/hooks/useConversation';
+import { detectIntentSync, type AtlasResponseData } from '@/lib/intent-router';
 import { memorySnapshot } from '@/lib/memory';
 
-const CHAT_HISTORY_STORAGE_KEY = 'atlas_chat_history_v1';
-const CHAT_ARCHIVE_STORAGE_KEY = 'atlas_chat_archive_v1';
-
-const PLACEHOLDER_EXAMPLES = [
+const PLACEHOLDERS = [
   '40.000 TL bütçem var. Hangi telefonu almalıyım?',
   'Yapay zeka nedir? Nasıl çalışır?',
   '6 ayda İngilizce öğrenme planı yap',
-  'İş arkadaşıma veda e-postası yaz',
-  'Elektrikli araba mı yoksa hybrid mi almalıyım?',
-  'Python programlama dili hakkında araştırma yap',
-  'Kariyer değişikliği için adım adım rehber',
+  'Elektrikli araba mı yoksa hibrit mi almalıyım?',
 ];
 
 const INTENT_LABELS: Record<string, string> = {
-  conversation: 'Sohbet',
-  decision: 'Karar Analizi',
-  learning: 'Öğrenme',
-  writing: 'Yazı Asistanı',
-  research: 'Araştırma',
-  planning: 'Planlama',
+  conversation: 'Sohbet', decision: 'Karar Analizi', learning: 'Öğrenme',
+  writing: 'Yazı Asistanı', research: 'Araştırma', planning: 'Planlama',
   'problem-solving': 'Problem Çözümü',
 };
 
-export default function Home() {
-  console.log("HOME COMPONENT RENDER EDILDI");
-  const [question, setQuestion] = useState('');
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [response, setResponse] = useState<AtlasResponseData | null>(null);
-  const [intentPreview, setIntentPreview] = useState<IntentDetectionResult | null>(null);
-  const [activeLoadingConfig, setActiveLoadingConfig] = useState<IntentDetectionResult | null>(null);
-  const [placeholderIdx, setPlaceholderIdx] = useState(0);
-  const [history, setHistory] = useState<ChatHistoryEntry[]>([]);
-  const [memory, setMemory] = useState<UserMemory>(getMemory);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+type BackendResponse = Extract<AtlasResponseData, { kind: 'backend' }>;
 
-  // Rotate placeholder text
+function isBackendResponse(response: AtlasResponseData | undefined): response is BackendResponse {
+  return Boolean(response && 'kind' in response && response.kind === 'backend');
+}
+
+export default function Home() {
+  const [question, setQuestion] = useState('');
+  const [placeholderIndex, setPlaceholderIndex] = useState(0);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const endRef = useRef<HTMLDivElement>(null);
+  const conversation = useConversation();
+
   useEffect(() => {
-    const timer = setInterval(() => {
-      setPlaceholderIdx((i) => (i + 1) % PLACEHOLDER_EXAMPLES.length);
-    }, 3500);
-    return () => clearInterval(timer);
+    const timer = window.setInterval(() => setPlaceholderIndex((index) => (index + 1) % PLACEHOLDERS.length), 3500);
+    return () => window.clearInterval(timer);
   }, []);
 
-  // Live intent preview while typing
   useEffect(() => {
-    if (!question.trim() || question.length < 8) {
-      setIntentPreview(null);
-      return;
-    }
-    const timer = setTimeout(() => {
-      setIntentPreview(detectIntentSync(question));
-    }, 350);
-    return () => clearTimeout(timer);
-  }, [question]);
+    endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+  }, [conversation.messages, conversation.isThinking]);
 
- useEffect(() => {
-  localStorage.removeItem(CHAT_HISTORY_STORAGE_KEY);
-  setHistory([]);
-}, []);
-
-  useEffect(() => {
-    try {
-      if (history.length > 0) {
-    localStorage.setItem(
-        CHAT_HISTORY_STORAGE_KEY,
-        JSON.stringify(history)
-    );
-    }
-  } catch {
-    // ignore storage issues
-  }
-}, [history]);
-
-  const memoryLines = memorySnapshot(memory);
-
-  const handleSubmit = async () => {
-    const trimmedQuestion = question.trim();
-    if (!trimmedQuestion || isProcessing) return;
-
-    const detected = detectIntentSync(trimmedQuestion);
-    const nextUserTurn: ChatHistoryEntry = { role: 'user', content: trimmedQuestion };
-
-    setActiveLoadingConfig(detected);
-    setIsProcessing(true);
-
-    try {
-      const result = await processQuery(trimmedQuestion, [...history, nextUserTurn], memoryLines.join('\n'));
-      const assistantContent = result.intent === 'conversation'
-        ? result.data.message
-        : JSON.stringify(result.data);
-      const nextAssistantTurn: ChatHistoryEntry = { role: 'assistant', content: assistantContent };
-
-      setHistory((prevHistory) => {
-        const nextHistory = [...prevHistory, nextUserTurn];
-        const lastAssistant = prevHistory[prevHistory.length - 1];
-        if (lastAssistant?.role === 'assistant' && lastAssistant.content === assistantContent) {
-          return nextHistory;
-        }
-        return [...nextHistory, nextAssistantTurn];
-      });
-      setResponse(result);
-
-      if (!memory.permissionGranted) {
-        const granted = grantMemoryPermission();
-        setMemory(granted);
-      }
-    } catch (err) {
-      console.error('Atlas AI error:', err);
-    } finally {
-      setIsProcessing(false);
-      setQuestion('');
-      setTimeout(() => textareaRef.current?.focus(), 100);
-    }
-  };
-
-  const handleReset = () => {
-    if (history.length > 0) {
-      try {
-        const archive = JSON.parse(localStorage.getItem(CHAT_ARCHIVE_STORAGE_KEY) ?? '[]') as ChatHistoryEntry[][];
-        localStorage.setItem(CHAT_ARCHIVE_STORAGE_KEY, JSON.stringify([...archive, history]));
-      } catch {
-        // ignore storage issues
-      }
-    }
-
+  const submit = (value = question) => {
+    const trimmed = value.trim();
+    if (!trimmed || conversation.isThinking) return;
     setQuestion('');
-    setResponse(null);
-    setIntentPreview(null);
-    setActiveLoadingConfig(null);
-    setHistory([]);
-    setTimeout(() => textareaRef.current?.focus(), 100);
+    void conversation.sendMessage(trimmed);
+    window.setTimeout(() => textareaRef.current?.focus(), 50);
   };
 
-  const handleFollowUp = (q: string) => {
-    setQuestion(q);
-    setIntentPreview(null);
-    handleSubmitWith(q);
-  };
-
-  const handleSubmitWith = async (q: string) => {
-    const trimmedQuestion = q.trim();
-    if (!trimmedQuestion || isProcessing) return;
-
-    const detected = detectIntentSync(trimmedQuestion);
-    const nextUserTurn: ChatHistoryEntry = { role: 'user', content: trimmedQuestion };
-
-    setActiveLoadingConfig(detected);
-    setIsProcessing(true);
-    try {
-      const result = await processQuery(trimmedQuestion, [...history, nextUserTurn], memoryLines.join('\n'));
-      const assistantContent = result.intent === 'conversation'
-        ? result.data.message
-        : JSON.stringify(result.data);
-      const nextAssistantTurn: ChatHistoryEntry = { role: 'assistant', content: assistantContent };
-
-      setHistory((prevHistory) => {
-        const nextHistory = [...prevHistory, nextUserTurn];
-        const lastAssistant = prevHistory[prevHistory.length - 1];
-        if (lastAssistant?.role === 'assistant' && lastAssistant.content === assistantContent) {
-          return nextHistory;
-        }
-        return [...nextHistory, nextAssistantTurn];
-      });
-      setResponse(result);
-    } catch (err) {
-      console.error('Atlas AI error:', err);
-    } finally {
-      setIsProcessing(false);
-      setQuestion('');
-    }
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSubmit();
-    }
-  };
-
-  const showInput = true;
-  const showLoading = isProcessing;
-  const showResponse = !!response;
+  const intentPreview = question.trim().length >= 8 ? detectIntentSync(question) : null;
+  const memoryLines = memorySnapshot(conversation.memory);
 
   return (
-    <div className="min-h-[100dvh] w-full bg-background relative overflow-hidden">
-      {/* Ambient background */}
-      <div className="absolute inset-0 bg-gradient-to-b from-primary/5 via-transparent to-transparent pointer-events-none" />
-      <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-primary/10 rounded-full blur-3xl opacity-20 pointer-events-none" />
-      <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-primary/10 rounded-full blur-3xl opacity-20 pointer-events-none" />
+    <main className="min-h-[100dvh] w-full bg-background text-foreground">
+      <div className="pointer-events-none fixed inset-0 bg-gradient-to-b from-primary/5 via-transparent to-transparent" />
+      <div className="relative z-10 mx-auto flex min-h-[100dvh] w-full max-w-5xl flex-col px-4 py-6 md:px-8 md:py-10">
+        <header className="mb-6 flex flex-wrap items-center justify-between gap-3 border-b border-border/70 pb-5">
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/15 text-primary"><Brain className="h-4 w-4" aria-hidden="true" /></div>
+            <div><h1 className="font-serif text-2xl font-bold">Atlas <span className="text-primary">AI</span></h1><p className="text-xs text-muted-foreground">Birlikte düşünen karar asistanı</p></div>
+          </div>
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <button type="button" onClick={conversation.memory.permissionGranted ? conversation.revokeMemory : conversation.grantMemory} aria-pressed={conversation.memory.permissionGranted} className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-xs text-muted-foreground hover:border-primary/40 hover:text-foreground">
+              <MemoryStick className="h-3.5 w-3.5" aria-hidden="true" />
+              {conversation.memory.permissionGranted ? 'Hafızayı devre dışı bırak' : 'Hafızayı etkinleştir'}
+            </button>
+            <button type="button" onClick={conversation.clearMemory} aria-label="Uzun süreli hafızayı temizle" title="Uzun süreli hafızayı temizle" className="rounded-lg border border-border bg-card p-2 text-muted-foreground hover:text-destructive"><Trash2 className="h-4 w-4" aria-hidden="true" /></button>
+            <button type="button" onClick={conversation.reset} aria-label="Sohbeti sıfırla" title="Sohbeti sıfırla" className="rounded-lg border border-border bg-card p-2 text-muted-foreground hover:text-primary"><RotateCcw className="h-4 w-4" aria-hidden="true" /></button>
+          </div>
+        </header>
 
-      <div className="relative z-10 container mx-auto px-4 py-12 md:py-20">
-        <AnimatePresence mode="wait">
+        {conversation.memory.permissionGranted && memoryLines.length > 0 && (
+          <aside className="mb-5 rounded-xl border border-primary/20 bg-primary/5 p-3 text-xs text-muted-foreground" aria-label="Atlas hafızası">
+            <span className="font-semibold text-foreground">Atlas hafızası: </span>{memoryLines.join(' · ')}
+          </aside>
+        )}
 
-          {/* ── Input view ── */}
-          {showInput && (
-            <motion.div
-              key="input"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0, y: -12 }}
-              transition={{ duration: 0.4 }}
-              className="max-w-3xl mx-auto"
-            >
-              {/* Header */}
-              <motion.div
-                initial={{ opacity: 0, y: -20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.8, ease: 'easeOut' }}
-                className="text-center mb-16"
-              >
-                <h1 className="text-5xl md:text-7xl font-serif font-bold mb-4">
-                  <span className="text-foreground">Atlas</span>{' '}
-                  <span className="text-primary" style={{ textShadow: '0 0 30px hsl(var(--primary) / 0.3)' }}>
-                    AI
-                  </span>
-                </h1>
-                <p className="text-lg md:text-xl text-muted-foreground font-light tracking-wide">
-                  Seninle birlikte düşünen, konuşmaya devam eden bir düşünce ortağı
-                </p>
-              </motion.div>
-
-              {memoryLines.length > 0 && (
-                <motion.div
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  className="mb-8 rounded-2xl border border-primary/20 bg-card/70 p-4 text-sm text-muted-foreground"
-                >
-                  <p className="mb-2 font-semibold text-foreground">Atlas hafızası</p>
-                  <ul className="space-y-1">
-                    {memoryLines.map((line) => (
-                      <li key={line}>• {line}</li>
-                    ))}
-                  </ul>
-                </motion.div>
-              )}
-
-              {history.length > 0 && (
-                <motion.div
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="mb-8 space-y-3 rounded-2xl border border-border/70 bg-card/60 p-4"
-                >
-                  {history.map((entry, index) => (
-                    <div
-                      key={`${entry.role}-${index}`}
-                      className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${entry.role === 'user' ? 'ml-auto bg-primary text-primary-foreground' : 'bg-muted/60 text-foreground'}`}
-                    >
-                      <p className="text-[10px] uppercase tracking-[0.2em] opacity-70">
-                        {entry.role === 'user' ? 'Sen' : 'Atlas'}
-                      </p>
-                      <p className="mt-1">{entry.content}</p>
+        <section className="flex-1" aria-label="Sohbet">
+          {conversation.messages.length === 0 ? <EmptyState onSuggestion={submit} /> : (
+            <div className="mx-auto max-w-3xl space-y-5 pb-8" aria-live="polite">
+              {conversation.messages.map((message) => {
+                const response = isBackendResponse(message.richContent) ? message.richContent : null;
+                return (
+                  <motion.article key={message.id} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className={message.role === 'user' ? 'ml-auto max-w-[85%]' : 'mr-auto w-full max-w-[92%]'}>
+                    <p className="mb-1 px-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">{message.role === 'user' ? 'Sen' : 'Atlas'}</p>
+                    <div className={message.role === 'user' ? 'rounded-2xl rounded-br-sm bg-primary px-4 py-3 text-sm leading-relaxed text-primary-foreground' : 'rounded-2xl rounded-bl-sm border border-border bg-card px-5 py-4 text-sm leading-relaxed text-card-foreground'}>
+                      {message.type === 'clarification' && message.clarificationData ? (
+                        <ClarificationCard data={message.clarificationData} onQuickAnswer={submit} />
+                      ) : response ? (
+                        <>
+                          <p className="whitespace-pre-wrap">{response.data.message}</p>
+                          <GroundedResults metadata={response.metadata} />
+                          {response.data.followUps.length > 0 && <div className="mt-4 flex flex-wrap gap-2">{response.data.followUps.map((followUp) => <button key={followUp} type="button" onClick={() => submit(followUp)} className="rounded-full border border-primary/30 px-3 py-2 text-xs text-primary hover:bg-primary/10">{followUp}</button>)}</div>}
+                        </>
+                      ) : <p className="whitespace-pre-wrap">{message.content}</p>}
                     </div>
-                  ))}
-                </motion.div>
-              )}
-
-              {/* Input */}
-              <motion.div
-                initial={{ opacity: 0, y: 40 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.8, delay: 0.2, ease: 'easeOut' }}
-                className="space-y-4"
-              >
-                <div className="relative">
-                  <textarea
-                    ref={textareaRef}
-                    value={question}
-                    onChange={(e) => setQuestion(e.target.value)}
-                    onKeyDown={handleKeyDown}
-                    placeholder={PLACEHOLDER_EXAMPLES[placeholderIdx]}
-                    className="w-full min-h-[160px] bg-card/50 backdrop-blur-sm border-2 border-border rounded-2xl px-6 py-5 text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-primary transition-all duration-300 resize-none text-lg leading-relaxed"
-                    data-testid="input-question"
-                    autoFocus
-                    disabled={isProcessing}
-                  />
-
-                  {/* Live intent badge */}
-                  <AnimatePresence>
-                    {intentPreview && (
-                      <motion.div
-                        initial={{ opacity: 0, scale: 0.9, y: 4 }}
-                        animate={{ opacity: 1, scale: 1, y: 0 }}
-                        exit={{ opacity: 0, scale: 0.9 }}
-                        transition={{ duration: 0.2 }}
-                        className="absolute bottom-4 right-4 flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-full border"
-                        style={{
-                          background: 'hsl(var(--primary) / 0.08)',
-                          borderColor: 'hsl(var(--primary) / 0.3)',
-                          color: 'hsl(var(--primary))',
-                        }}
-                      >
-                        <span className="w-1.5 h-1.5 rounded-full bg-primary" />
-                        {INTENT_LABELS[intentPreview.intent] ?? intentPreview.intent}
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </div>
-
-                <motion.button
-                  onClick={handleSubmit}
-                  disabled={!question.trim() || isProcessing}
-                  className="w-full py-5 rounded-2xl font-semibold text-lg text-primary-foreground bg-gradient-to-r from-primary via-chart-2 to-primary transition-all duration-300 disabled:opacity-40 disabled:cursor-not-allowed relative overflow-hidden group"
-                  whileHover={{ scale: question.trim() && !isProcessing ? 1.015 : 1 }}
-                  whileTap={{ scale: question.trim() && !isProcessing ? 0.98 : 1 }}
-                  data-testid="button-submit"
-                  style={{ backgroundSize: '200% 100%' }}
-                >
-                  <span className="relative z-10">Atlas'a Sor</span>
-                  <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/15 to-transparent translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-1000" />
-                </motion.button>
-
-                {/* Intent hint row */}
-                <motion.div
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  transition={{ delay: 0.5 }}
-                  className="flex items-center justify-center gap-3 flex-wrap"
-                >
-                  {Object.entries(INTENT_LABELS).map(([key, label]) => (
-                    <span key={key} className="text-xs text-muted-foreground/40">
-                      {label}
-                    </span>
-                  ))}
-                </motion.div>
-              </motion.div>
-            </motion.div>
+                  </motion.article>
+                );
+              })}
+              <AnimatePresence>{conversation.isThinking && <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex items-center gap-3 text-sm text-muted-foreground" role="status"><LoaderCircle className="h-4 w-4 animate-spin text-primary" aria-hidden="true" />Atlas yanıt hazırlıyor</motion.div>}</AnimatePresence>
+              <div ref={endRef} />
+            </div>
           )}
+        </section>
 
-          {/* ── Loading view ── */}
-          {showLoading && (
-            <motion.div
-              key="loading"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.3 }}
-              className="max-w-3xl mx-auto"
-            >
-              {/* Compact header */}
-              <div className="text-center mb-12">
-                <h1 className="text-3xl md:text-4xl font-serif font-bold mb-1">
-                  <span className="text-foreground">Atlas</span>{' '}
-                  <span className="text-primary">AI</span>
-                </h1>
-                {activeLoadingConfig && (
-                  <p className="text-xs text-muted-foreground uppercase tracking-widest">
-                    {INTENT_LABELS[activeLoadingConfig.intent]}
-                  </p>
-                )}
-              </div>
-              <LoadingState
-                loadingText={activeLoadingConfig?.loadingText}
-                steps={activeLoadingConfig?.loadingSteps}
-              />
-            </motion.div>
-          )}
+        {conversation.error && <div className="mx-auto mb-3 w-full max-w-3xl rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive" role="alert">{conversation.error}</div>}
 
-          {/* ── Response view ── */}
-          {showResponse && response && (
-            <motion.div
-              key="response"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ duration: 0.4 }}
-            >
-              {/* Compact header */}
-              <motion.div
-                initial={{ opacity: 0, y: -10 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="text-center mb-10"
-              >
-                <h1 className="text-3xl md:text-4xl font-serif font-bold mb-1">
-                  <span className="text-foreground">Atlas</span>{' '}
-                  <span className="text-primary">AI</span>
-                </h1>
-                <p className="text-xs text-muted-foreground uppercase tracking-widest">
-                  {INTENT_LABELS[response.intent] ?? response.intent}
-                </p>
-              </motion.div>
-
-              <div className="mb-6 rounded-2xl border border-border/80 bg-card/70 p-4 text-sm text-muted-foreground">
-                <p className="font-semibold text-foreground">Sohbet akışı</p>
-                <p className="mt-1">Atlas önceki mesajlarını hatırlıyor ve bir sonraki cevapta geçmişi kullanıyor.</p>
-              </div>
-
-              {history.length > 0 && (
-                <div className="mb-6 space-y-3 rounded-2xl border border-border/70 bg-card/60 p-4">
-                  {history.map((entry, index) => (
-                    <div
-                      key={`${entry.role}-${index}`}
-                      className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${entry.role === 'user' ? 'ml-auto bg-primary text-primary-foreground' : 'bg-muted/60 text-foreground'}`}
-                    >
-                      <p className="text-[10px] uppercase tracking-[0.2em] opacity-70">
-                        {entry.role === 'user' ? 'Sen' : 'Atlas'}
-                      </p>
-                      <p className="mt-1">{entry.content}</p>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {/* Route to correct card */}
-              {response.intent === 'decision' && (
-                <AnalysisReport result={response.data} onReset={handleReset} />
-              )}
-              {response.intent === 'conversation' && (
-                <ConversationCard data={response.data} onFollowUp={handleFollowUp} onReset={handleReset} />
-              )}
-              {response.intent === 'learning' && (
-                <LearningCard data={response.data} onFollowUp={handleFollowUp} onReset={handleReset} />
-              )}
-              {response.intent === 'writing' && (
-                <WritingCard data={response.data} onReset={handleReset} />
-              )}
-              {response.intent === 'research' && (
-                <ResearchCard data={response.data} onReset={handleReset} />
-              )}
-              {response.intent === 'planning' && (
-                <PlanningCard data={response.data} onReset={handleReset} />
-              )}
-              {response.intent === 'problem-solving' && (
-                <ProblemSolvingCard data={response.data} onReset={handleReset} />
-              )}
-            </motion.div>
-          )}
-
-        </AnimatePresence>
+        <div className="sticky bottom-0 mx-auto w-full max-w-3xl border-t border-border/70 bg-background/95 py-4 backdrop-blur">
+          <div className="relative">
+            <label htmlFor="atlas-question" className="sr-only">Atlas'a mesaj yaz</label>
+            <textarea id="atlas-question" ref={textareaRef} value={question} onChange={(event) => setQuestion(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); submit(); } }} placeholder={PLACEHOLDERS[placeholderIndex]} disabled={conversation.isThinking} rows={3} className="w-full resize-none rounded-2xl border-2 border-border bg-card/90 px-5 py-4 pr-16 text-sm leading-relaxed text-foreground placeholder:text-muted-foreground/50 focus:border-primary focus:outline-none disabled:opacity-60" data-testid="input-question" />
+            <button type="button" onClick={() => submit()} disabled={!question.trim() || conversation.isThinking} aria-label="Mesajı gönder" className="absolute bottom-3 right-3 flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-primary-foreground disabled:cursor-not-allowed disabled:opacity-40" data-testid="button-submit"><Send className="h-4 w-4" aria-hidden="true" /></button>
+          </div>
+          {intentPreview && <div className="mt-2 px-1 text-right text-xs text-muted-foreground/60">{INTENT_LABELS[intentPreview.intent]}</div>}
+        </div>
       </div>
-    </div>
+    </main>
   );
 }

@@ -1,14 +1,15 @@
 import { motion } from 'framer-motion';
+import { BookOpen, Map, PenLine, Scale, type LucideIcon } from 'lucide-react';
 
 interface Props {
   onSuggestion: (text: string) => void;
 }
 
-const SUGGESTIONS = [
-  { label: 'Karar Analizi', text: 'iPhone mı Samsung mı almalıyım? Fotoğraf çok önemli.', icon: '⚖️' },
-  { label: 'Öğrenme', text: 'Yapay zeka nedir ve nasıl çalışır? Hiç bilmiyorum.', icon: '📚' },
-  { label: 'Planlama', text: '6 ayda Python öğrenmek istiyorum, plan yap.', icon: '🗺️' },
-  { label: 'Yazı', text: 'Yöneticime terfi talebimi içeren bir e-posta yaz.', icon: '✍️' },
+const SUGGESTIONS: Array<{ label: string; text: string; icon: LucideIcon }> = [
+  { label: 'Karar Analizi', text: 'iPhone mı Samsung mı almalıyım? Fotoğraf çok önemli.', icon: Scale },
+  { label: 'Öğrenme', text: 'Yapay zeka nedir ve nasıl çalışır? Hiç bilmiyorum.', icon: BookOpen },
+  { label: 'Planlama', text: '6 ayda Python öğrenmek istiyorum, plan yap.', icon: Map },
+  { label: 'Yazı', text: 'Yöneticime terfi talebimi içeren bir e-posta yaz.', icon: PenLine },
 ];
 
 const container = {
@@ -60,31 +61,30 @@ export function EmptyState({ onSuggestion }: Props) {
 
         {/* Suggestions */}
         <motion.div variants={item} className="grid md:grid-cols-2 gap-3">
-          {SUGGESTIONS.map((s) => (
+          {SUGGESTIONS.map((suggestion) => {
+            const Icon = suggestion.icon;
+            return (
             <motion.button
-              key={s.label}
+              key={suggestion.label}
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
-              onClick={() => onSuggestion(s.text)}
+              onClick={() => onSuggestion(suggestion.text)}
               className="text-left bg-card border border-border hover:border-primary/40 rounded-2xl px-5 py-4 transition-all duration-200 group"
-              data-testid={`suggestion-${s.label}`}
+              data-testid={`suggestion-${suggestion.label}`}
             >
               <div className="flex items-center gap-2 mb-2">
-                <span className="text-lg">{s.icon}</span>
+                <Icon className="h-4 w-4 text-primary" aria-hidden="true" />
                 <span className="text-xs font-semibold uppercase tracking-widest text-primary">
-                  {s.label}
+                  {suggestion.label}
                 </span>
               </div>
               <p className="text-sm text-muted-foreground group-hover:text-foreground transition-colors leading-relaxed">
-                {s.text}
+                {suggestion.text}
               </p>
             </motion.button>
-          ))}
+            );
+          })}
         </motion.div>
-
-        <motion.p variants={item} className="text-xs text-muted-foreground/40">
-          Enter ile gönder · Shift+Enter ile yeni satır
-        </motion.p>
       </motion.div>
     </div>
   );

@@ -28,11 +28,107 @@ import { analyzeDecision, type AnalysisResult } from "./atlas-ai";
  * ─────────────────────────────────────────────────────────────────────────────
  */
 
-interface BackendChatApiResponse {
-  success: boolean;
-  reply: string;
-  history?: ChatHistoryEntry[];
+export type AtlasOperation = 'respond' | 'web_research' | 'product_search' | 'price_comparison';
+
+export interface WebSourceMetadata {
+  title: string;
+  url: string;
+  snippet: string;
+  publishedDate?: string;
+  domain: string;
+  retrievedAt: string;
+}
+
+export interface ProductMetadata {
+  title: string;
+  brand?: string;
+  model?: string;
+  url: string;
+  priceTRY: number;
+  currency: 'TRY';
+  seller?: string;
+  source: {
+    title: string;
+    url: string;
+    domain: string;
+  };
+  features: string[];
+  availability?: 'in_stock' | 'out_of_stock';
+  retrievedAt: string;
+  score?: number;
+  scoreComponents?: {
+    budgetFit: number;
+    preferenceFit: number;
+    useCaseFit: number;
+    featureFit: number;
+    valueScore: number;
+  };
+  confidence?: number;
+  matchedTerms?: string[];
+}
+
+export interface DecisionMetadata {
+  recommendedProductUrl?: string;
+  recommendation?: ProductMetadata;
+  alternatives: ProductMetadata[];
+  reasons: string[];
+  tradeoffs: string[];
+  confidence: number;
+  summary: string;
+  rankedProducts: ProductMetadata[];
+}
+
+export interface ComparisonMetadata {
+  criteria: Array<'budgetFit' | 'preferenceFit' | 'useCaseFit' | 'featureFit' | 'valueScore'>;
+  products: ProductMetadata[];
+}
+
+export interface MemoryCandidate {
+  key: 'budgetTRY' | 'preference' | 'useCase';
+  value: string | number;
+  reason: string;
+}
+
+export interface ResearchMetadata {
+  requested: boolean;
+  status: 'not_requested' | 'completed' | 'unavailable' | 'failed';
   error?: string;
+}
+
+export interface AtlasResponseMetadata {
+  operation: AtlasOperation;
+  sources: WebSourceMetadata[];
+  products: ProductMetadata[];
+  comparison?: ComparisonMetadata;
+  decision?: DecisionMetadata;
+  confidence: number;
+  memoryCandidates: MemoryCandidate[];
+  memoryUpdated?: boolean;
+  followUpQuestion?: string;
+  research: ResearchMetadata;
+  history: ChatHistoryEntry[];
+}
+
+interface BackendChatApiSuccessResponse extends AtlasResponseMetadata {
+  success: true;
+  message: string;
+  reply: string;
+  intent: IntentType;
+}
+
+interface BackendChatApiErrorResponse {
+  success: false;
+  message?: string;
+  error?: string;
+}
+
+type BackendChatApiResponse = BackendChatApiSuccessResponse | BackendChatApiErrorResponse;
+
+export class AtlasUserSafeError extends Error {
+  constructor(message = 'Atlas şu anda yanıt veremiyor. Lütfen daha sonra tekrar deneyin.') {
+    super(message);
+    this.name = 'AtlasUserSafeError';
+  }
 }
 
 function buildApiChatUrl(): string {
@@ -47,39 +143,40 @@ function buildApiChatUrl(): string {
   return `${configuredBase}/api/chat`;
 }
 
-async function askBackend(question: string, history: ChatHistoryEntry[] = [], memorySummary = '') {
-  console.log("askBackend çalıştı");
-  console.log("İstek gönderiliyor:", question);
-  console.log("Geçmiş mesaj sayısı:", history.length);
+async function askBackend(
+  question: string,
+  history: ChatHistoryEntry[] = [],
+  memorySummary = '',
+  priorProducts: ProductMetadata[] = []
+): Promise<BackendChatApiSuccessResponse> {
   const apiUrl = buildApiChatUrl();
-  console.log("API URL:", apiUrl);
-  console.log("HTTP isteği başladı");
-  const res = await fetch(apiUrl, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      message: question,
-      history,
-      memorySummary,
-    }),
-  });
+  try {
+    const response = await fetch(apiUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: question, history, memorySummary, priorProducts }),
+    });
+    const data = (await response.json()) as BackendChatApiResponse;
 
-  console.log("HTTP Durumu:", res.status);
+    if (!response.ok || !data.success) {
+      console.error('[Atlas AI] Chat API rejected the request', {
+        status: response.status,
+        detail: data.success ? undefined : data.error,
+      });
+      throw new AtlasUserSafeError(data.success ? undefined : data.message);
+    }
 
-  const data = (await res.json()) as BackendChatApiResponse;
-  console.log("Gelen cevap:", data);
+    if (typeof data.reply !== 'string' || typeof data.message !== 'string') {
+      console.error('[Atlas AI] Chat API returned an invalid success payload', data);
+      throw new AtlasUserSafeError();
+    }
 
-  if (!res.ok || !data.success) {
-    throw new Error(data.error ?? `Backend isteği başarısız: ${res.status}`);
+    return data;
+  } catch (error) {
+    if (error instanceof AtlasUserSafeError) throw error;
+    console.error('[Atlas AI] Chat API request failed', error);
+    throw new AtlasUserSafeError('Atlas hizmetine şu anda ulaşılamıyor. Lütfen daha sonra tekrar deneyin.');
   }
-
-  if (typeof data.reply !== 'string') {
-    throw new Error('Backend yanıtı beklenen formatta değil.');
-  }
-
-  return data;
 }
 // ─── Public types ─────────────────────────────────────────────────────────────
 
@@ -95,6 +192,7 @@ export type IntentType =
 export interface ChatHistoryEntry {
   role: 'user' | 'assistant';
   content: string;
+  metadata?: Pick<AtlasResponseMetadata, 'products'>;
 }
 
 export interface ConversationData {
@@ -150,6 +248,7 @@ export interface ProblemSolvingData {
 }
 
 export type AtlasResponseData =
+  | { kind: 'backend'; intent: IntentType; data: ConversationData; metadata: AtlasResponseMetadata }
   | { intent: 'conversation'; data: ConversationData }
   | { intent: 'decision'; data: AnalysisResult }
   | { intent: 'learning'; data: LearningData }
@@ -797,42 +896,38 @@ function generateProblemSolving(question: string): ProblemSolvingData {
  *
  * Replace the switch body with an LLM call to upgrade from rule-based to AI.
  */
-const MAX_RESPONSE_LENGTH = 300;
-
-function truncateAssistantReply(reply: string): string {
-  const trimmed = reply.trim().replace(/\s+/g, ' ');
-  if (trimmed.length <= MAX_RESPONSE_LENGTH) return trimmed;
-  const cutPoint = Math.max(
-    trimmed.lastIndexOf('.', MAX_RESPONSE_LENGTH),
-    trimmed.lastIndexOf('!', MAX_RESPONSE_LENGTH),
-    trimmed.lastIndexOf('?', MAX_RESPONSE_LENGTH),
-    MAX_RESPONSE_LENGTH
-  );
-  return `${trimmed.slice(0, cutPoint).trim()}...`;
-}
-
-function normalizeAssistantReply(reply: string, history: ChatHistoryEntry[]): string {
-  const trimmed = reply.trim();
-  const lastAssistant = [...history].reverse().find((entry) => entry.role === 'assistant');
-  if (lastAssistant && lastAssistant.content.trim() === trimmed) {
-    return `${truncateAssistantReply(trimmed)} (daha fazla bilgiye ihtiyacım var)`;
-  }
-  return truncateAssistantReply(trimmed);
-}
-
-export async function processQuery(question: string, history: ChatHistoryEntry[] = [], memorySummary = ''): Promise<AtlasResponseData> {
-  console.log("processQuery çalıştı:", question);
-
-  const response = await askBackend(question, history, memorySummary);
-  const normalized = normalizeAssistantReply(response.reply, history);
+export async function processQuery(
+  question: string,
+  history: ChatHistoryEntry[] = [],
+  memorySummary = ''
+): Promise<AtlasResponseData> {
+  const priorProducts = [...history]
+    .reverse()
+    .find((entry) => entry.role === 'assistant' && entry.metadata?.products.length)
+    ?.metadata?.products ?? [];
+  const apiHistory = history.map(({ role, content }) => ({ role, content }));
+  const response = await askBackend(question, apiHistory, memorySummary, priorProducts);
+  const message = response.reply.trim();
 
   return {
-    intent: "conversation",
+    kind: 'backend',
+    intent: response.intent,
     data: {
-      message: normalized,
-      tone: "helpful",
-      followUps: [],
-      history: response.history ?? [...history, { role: 'user', content: question }, { role: 'assistant', content: normalized }],
+      message,
+      tone: 'helpful',
+      followUps: response.followUpQuestion ? [response.followUpQuestion] : [],
+      history: response.history,
+    },
+    metadata: {
+      operation: response.operation,
+      sources: response.sources,
+      products: response.products,
+      decision: response.decision,
+      confidence: response.confidence,
+      memoryCandidates: response.memoryCandidates,
+      followUpQuestion: response.followUpQuestion,
+      research: response.research,
+      history: response.history,
     },
   };
 }

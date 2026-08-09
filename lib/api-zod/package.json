@@ -9,8 +9,8 @@
   },
   "types": "./dist/index.d.ts",
   "scripts": {
-  "build": "tsc && cp dist/index.d.ts dist/index.js"
-},
+    "build": "tsc"
+  },
   "dependencies": {
     "zod": "catalog:"
   }

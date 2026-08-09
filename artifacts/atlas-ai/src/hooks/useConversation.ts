@@ -1,12 +1,20 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import {
   processUserTurn,
   buildConversationHistoryFromMessages,
   type ConversationMessage,
   type CollectedContext,
 } from '@/lib/conversation-engine';
-import { detectIntentSync } from '@/lib/intent-router';
-import { getMemory, extractAndSave, clearMemory, grantMemoryPermission, type UserMemory } from '@/lib/memory';
+import { AtlasUserSafeError } from '@/lib/intent-router';
+import {
+  getMemory,
+  applyMemoryCandidates,
+  clearMemory,
+  grantMemoryPermission,
+  revokeMemoryPermission,
+  type UserMemory,
+} from '@/lib/memory';
+import { clearConversation, loadConversation, saveConversation } from '@/lib/conversation-storage';
 
 // ─── State ────────────────────────────────────────────────────────────────────
 
@@ -15,6 +23,7 @@ interface ConversationState {
   isThinking: boolean;
   context: CollectedContext | null;
   isAnsweringClarification: boolean;
+  error: string | null;
 }
 
 const INITIAL_STATE: ConversationState = {
@@ -22,6 +31,7 @@ const INITIAL_STATE: ConversationState = {
   isThinking: false,
   context: null,
   isAnsweringClarification: false,
+  error: null,
 };
 
 function uid(): string {
@@ -31,8 +41,32 @@ function uid(): string {
 // ─── Hook ─────────────────────────────────────────────────────────────────────
 
 export function useConversation() {
-  const [state, setState] = useState<ConversationState>(INITIAL_STATE);
+  const [state, setState] = useState<ConversationState>(() => ({
+    ...INITIAL_STATE,
+    ...loadConversation(),
+  }));
   const [memory, setMemory] = useState<UserMemory>(getMemory);
+  const stateRef = useRef(state);
+  const memoryRef = useRef(memory);
+  const sendingRef = useRef(false);
+  const skipNextPersistenceRef = useRef(false);
+
+  useEffect(() => {
+    stateRef.current = state;
+    if (skipNextPersistenceRef.current) {
+      skipNextPersistenceRef.current = false;
+      return;
+    }
+    saveConversation({
+      messages: state.messages,
+      context: state.context,
+      isAnsweringClarification: state.isAnsweringClarification,
+    });
+  }, [state]);
+
+  useEffect(() => {
+    memoryRef.current = memory;
+  }, [memory]);
 
   /**
    * Send any user message (first question OR clarification answer).
@@ -40,14 +74,17 @@ export function useConversation() {
    */
   const sendMessage = useCallback(
     async (text: string) => {
-      if (!text.trim() || state.isThinking) return;
+      const trimmed = text.trim();
+      if (!trimmed || sendingRef.current) return;
+      sendingRef.current = true;
+      const current = stateRef.current;
 
       // 1. Optimistically add user message + start thinking
       const userMsg: ConversationMessage = {
         id: uid(),
         role: 'user',
         type: 'text',
-        content: text,
+        content: trimmed,
         timestamp: new Date(),
       };
 
@@ -55,16 +92,17 @@ export function useConversation() {
         ...prev,
         messages: [...prev.messages, userMsg],
         isThinking: true,
+        error: null,
       }));
 
       try {
-        const history = buildConversationHistoryFromMessages([...state.messages, userMsg]);
+        const history = buildConversationHistoryFromMessages(current.messages);
 
         const result = await processUserTurn(
-          text,
-          state.context,
-          state.isAnsweringClarification,
-          memory,
+          trimmed,
+          current.context,
+          current.isAnsweringClarification,
+          memoryRef.current,
           history
         );
 
@@ -103,50 +141,55 @@ export function useConversation() {
             isAnsweringClarification: false,
           }));
 
-          // Persist saveable facts to memory (if permitted)
-          if (memory.permissionGranted) {
-            const ctx = result.context;
-            extractAndSave({
-              budget: ctx.budget,
-              location: ctx.location,
-              topic: ctx.originalQuestion.slice(0, 40),
-            });
-            setMemory(getMemory());
+          if (memoryRef.current.permissionGranted && 'metadata' in result.data) {
+            const updatedMemory = applyMemoryCandidates(result.data.metadata.memoryCandidates);
+            memoryRef.current = updatedMemory;
+            setMemory(updatedMemory);
           }
         }
       } catch (err) {
         console.error('[Atlas AI] processUserTurn failed:', err);
-        const errMsg: ConversationMessage = {
-          id: uid(),
-          role: 'atlas',
-          type: 'text',
-          content: 'Bir hata oluştu. Lütfen tekrar deneyin.',
-          timestamp: new Date(),
-        };
+        const userMessage = err instanceof AtlasUserSafeError
+          ? err.message
+          : 'Bir hata oluştu. Lütfen tekrar deneyin.';
         setState((prev) => ({
           ...prev,
-          messages: [...prev.messages, errMsg],
           isThinking: false,
+          error: userMessage,
         }));
+      } finally {
+        sendingRef.current = false;
       }
     },
-    [state, memory]
+    []
   );
 
   /** Reset the conversation (keeps memory). */
   const reset = useCallback(() => {
+    sendingRef.current = false;
+    stateRef.current = INITIAL_STATE;
+    skipNextPersistenceRef.current = true;
+    clearConversation();
     setState(INITIAL_STATE);
   }, []);
 
   /** Wipe all persisted memory. */
   const handleClearMemory = useCallback(() => {
     const cleared = clearMemory();
+    memoryRef.current = cleared;
     setMemory(cleared);
   }, []);
 
   /** Grant permission to persist long-term context. */
   const handleGrantMemory = useCallback(() => {
     const updated = grantMemoryPermission();
+    memoryRef.current = updated;
+    setMemory(updated);
+  }, []);
+
+  const handleRevokeMemory = useCallback(() => {
+    const updated = revokeMemoryPermission();
+    memoryRef.current = updated;
     setMemory(updated);
   }, []);
 
@@ -154,10 +197,12 @@ export function useConversation() {
     messages: state.messages,
     isThinking: state.isThinking,
     isAnsweringClarification: state.isAnsweringClarification,
+    error: state.error,
     sendMessage,
     reset,
     memory,
     clearMemory: handleClearMemory,
     grantMemory: handleGrantMemory,
+    revokeMemory: handleRevokeMemory,
   };
 }
