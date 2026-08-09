@@ -30,16 +30,20 @@ const PRODUCT_CATEGORIES: Array<[string, RegExp]> = [
 ];
 
 function buildProductQueries(context: RequestContext, fallback: string): { query: string; backfillQuery: string } {
-  const subject = context.category ?? fallback;
+  const normalizedFallback = fallback.toLocaleLowerCase("tr-TR");
+  const subject = context.category && !normalizedFallback.includes(context.category.toLocaleLowerCase("tr-TR"))
+    ? `${fallback} ${context.category}`
+    : fallback;
   const productNeeds = [
     ...context.preferences,
     context.useCase,
   ].filter((value): value is string => Boolean(value));
   const base = [subject, ...productNeeds].join(" ");
+  const backfillBase = base.replace(/\d[\d.,]*(?:\s*bin)?\s*(?:TL|lira|₺)\s*(?:altı(?:nda)?|üstü(?:nde)?)?/gi, "").replace(/\s+/g, " ").trim();
   const budget = context.budgetTRY !== undefined ? `${context.budgetTRY} TL altı` : "";
   return {
     query: `${base} ${budget} satın al tekil ürün sayfası satış fiyatı TL stokta Türkiye`.replace(/\s+/g, " ").trim(),
-    backfillQuery: `${base} sepete ekle ürün kodu model satış fiyatı TL Türkiye`,
+    backfillQuery: `${backfillBase} sepete ekle ürün kodu model satış fiyatı TL Türkiye`,
   };
 }
 

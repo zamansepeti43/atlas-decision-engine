@@ -3,7 +3,7 @@
   "builds": [
     {
       "src": "artifacts/api-server/api/index.ts",
-      "use": "@vercel/node"
+      "use": "@vercel/node@5.9.7"
     },
     {
       "src": "artifacts/atlas-ai/package.json",

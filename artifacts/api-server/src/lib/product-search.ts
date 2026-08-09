@@ -1,5 +1,5 @@
 import type { ProductResult, ResearchStatus, WebSource } from "./chat-types.js";
-import { normalizeProductResults } from "./product-normalizer.js";
+import { detectProductBrand, detectProductIdentifiers, normalizeProductResults } from "./product-normalizer.js";
 import { searchWeb, type WebSearchOptions, type WebSearchResult } from "../services/web-search.js";
 
 const TARGET_PRODUCT_COUNT = 2;
@@ -30,15 +30,17 @@ export async function searchProducts(
   backfillQuery: string | undefined,
   searcher: Searcher = (searchQuery, options) => searchWeb(searchQuery, undefined, fetch, options),
 ): Promise<ProductSearchResult> {
+  const requiredBrand = detectProductBrand(query);
+  const requiredIdentifiers = detectProductIdentifiers(query);
   const primary = await searcher(query, { excludeDomains: NON_LISTING_DOMAINS });
   let sources = primary.sources;
-  let products = normalizeProductResults(sources);
+  let products = normalizeProductResults(sources, requiredBrand, requiredIdentifiers);
 
   if (primary.research.status === "completed" && products.length < TARGET_PRODUCT_COUNT && backfillQuery) {
     const backfill = await searcher(backfillQuery, { includeDomains: TURKISH_MERCHANT_DOMAINS });
     if (backfill.research.status === "completed") {
       sources = mergeSources(sources, backfill.sources);
-      products = normalizeProductResults(sources);
+      products = normalizeProductResults(sources, requiredBrand, requiredIdentifiers);
     }
   }
 

@@ -49,6 +49,12 @@ test("shoe request with a TRY budget plans current price comparison", () => {
   assert.doesNotMatch(plan.backfillQuery ?? "", /2000 TL altı/i);
 });
 
+test("specific product identity is preserved in listing queries", () => {
+  const plan = planRequest("Samsung Galaxy A16 128 GB telefonun Türkiye satış fiyatını bul.");
+  assert.match(plan.query ?? "", /Samsung Galaxy A16 128 GB/i);
+  assert.match(plan.backfillQuery ?? "", /Samsung Galaxy A16 128 GB/i);
+});
+
 test("budgeted product request requires research without an explicit search word", () => {
   const plan = planRequest("2000 TL bütçem var, rahat ve hafif spor ayakkabı istiyorum.");
   assert.equal(plan.intent, "decision");

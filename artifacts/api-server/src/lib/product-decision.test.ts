@@ -45,6 +45,7 @@ test("missing price is never inferred or exposed as a grounded product", () => {
 test("categories, articles, forums, social media, videos, and price ranges remain sources only", () => {
   const rejected: WebSource[] = [
     { title: "Spor Ayakkabı Modelleri ve Fiyatları", url: "https://shop.example/spor-ayakkabi-x-c109", snippet: "900 TL - 2000 TL", domain: "shop.example", retrievedAt },
+    { title: "Paten Ayakkabı Al", url: "https://www.trendyol.com/paten-ayakkabi-y-s28913", snippet: "Sepete ekle 1.978,02 TL", domain: "trendyol.com", retrievedAt },
     { title: "2000 TL Altı Spor Ayakkabılar", url: "https://news.example/haber/shoes", snippet: "Nike ve Adidas önerileri", domain: "news.example", retrievedAt },
     { title: "2000-3000 TL bandında ayakkabı önerisi", url: "https://technopat.net/sosyal/konu/shoes", snippet: "Ürün tavsiyesi", domain: "technopat.net", retrievedAt },
     { title: "Ayakkabı önerileri", url: "https://instagram.com/reel/example", snippet: "2000 TL altında", domain: "instagram.com", retrievedAt },
@@ -70,4 +71,12 @@ test("installment amounts are never parsed as full product sale prices", () => {
     retrievedAt,
   };
   assert.deepEqual(normalizeProductResults([installment]), []);
+});
+
+test("promotional savings and add-on service fees are never parsed as sale prices", () => {
+  const nonSaleAmounts: WebSource[] = [
+    { title: "Samsung Galaxy A16", url: "https://shop.example/urun/samsung-galaxy-a16", snippet: "8.500 TL'ye varan kazançla eski telefonunu yenile.", domain: "shop.example", retrievedAt },
+    { title: "Samsung Galaxy A16", url: "https://shop.example/urun/samsung-galaxy-a16", snippet: "Ek Hizmetler. 1 Yıl Ek Garanti. 334 TL. 2 ay ücretsiz Premium.", domain: "shop.example", retrievedAt },
+  ];
+  assert.deepEqual(normalizeProductResults(nonSaleAmounts), []);
 });

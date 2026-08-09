@@ -3,25 +3,39 @@
   "builds": [
     {
       "src": "artifacts/api-server/api/index.ts",
-      "use": "@vercel/node"
+      "use": "@vercel/node@5.9.7"
     },
     {
       "src": "artifacts/atlas-ai/package.json",
-      "use": "@vercel/static",
+      "use": "@vercel/static-build",
       "config": {
         "distDir": "dist"
       }
     }
   ],
-  "rewrites": [
+  "routes": [
     {
-      "source": "/api/(.*)",
-      "destination": "/api/index"
+      "src": "/api(?:/(.*))?",
+      "dest": "/artifacts/api-server/api/index.ts"
     },
     {
-      "source": "/(.*)",
-      "destination": "/index.html"
+      "src": "/assets/(.*)",
+      "dest": "/artifacts/atlas-ai/assets/$1"
+    },
+    {
+      "src": "/favicon.svg",
+      "dest": "/artifacts/atlas-ai/favicon.svg"
+    },
+    {
+      "src": "/robots.txt",
+      "dest": "/artifacts/atlas-ai/robots.txt"
+    },
+    {
+      "handle": "filesystem"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/artifacts/atlas-ai/index.html"
     }
-  ],
-  "outputDirectory": "artifacts/atlas-ai/dist"
+  ]
 }

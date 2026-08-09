@@ -1,16 +1,25 @@
 import type { ProductResult, WebSource } from "./chat-types.js";
 
 const REJECTED_DOMAIN = /(^|\.)(youtube\.com|youtu\.be|instagram\.com|facebook\.com|tiktok\.com|twitter\.com|x\.com|reddit\.com|onedio\.com|technopat\.net)$/i;
-const REJECTED_PATH = /\/(haber|blog|forum|sosyal|reel|watch|kategori|category)(\/|$)|-x-c\d+(?:\?|$)|\/c-\d+(?:\?|$)/i;
+const REJECTED_PATH = /\/(haber|blog|forum|sosyal|reel|watch|kategori|category)(\/|$)|-(?:x-c|y-s)\d+(?:\?|$)|\/c-\d+(?:\?|$)/i;
 const GENERIC_TITLE = /(modelleri|markaları|fiyatları|en ucuzu|önerileri|önerisi|tavsiye|\baltı\b|altında|bandında|listesi|karşılaştırma|rehberi|kampanyaları)/i;
 const LISTING_URL = /(?:-p-\d+|\/dp\/[A-Z0-9]+|\/gp\/product\/|-[pm]-[A-Z0-9]+|\/product\/|\/urun\/|\/products?\/|\/p\/)/i;
 const LISTING_EVIDENCE = /(sepete ekle|satın al|stokta|stok mevcut|ürün kodu|model no|sku)/i;
 const SALE_PRICE_CONTEXT = /(satış fiyatı|indirimli fiyat|sepette|fiyatı?\s*:|şimdi\s+sadece|bugüne özel)/i;
 const RANGE_OR_BUDGET_CONTEXT = /(\baltı\b|altında|\büstü\b|üzerinde|bandında|aralığında|bütçe|\d[\d.,]*\s*(?:TL|TRY|₺)?\s*[-–—]\s*\d)/i;
-const NON_SALE_AMOUNT_CONTEXT = /(taksit|\d+\s*x\s*\d|kupon|indirim kodu|kargo|puan)/i;
+const NON_SALE_AMOUNT_CONTEXT = /(taksit|\d+\s*x\s*\d|kupon|indirim kodu|kargo|puan|kazanç|ek hizmet|ek garanti|premium|hediye)/i;
 const KNOWN_BRANDS = ["adidas", "nike", "puma", "skechers", "new balance", "asics", "reebok", "under armour", "vans", "hoka", "apple", "samsung", "xiaomi", "lenovo", "dell", "asus", "acer", "sony", "philips"];
 const FEATURE_TERMS = ["hafif", "rahat", "konfor", "koşu", "spor", "günlük", "oyun", "nefes alabilir", "su geçirmez", "dayanıklı"];
 const PRICE_PATTERN = /(?:TRY|TL|₺)\s*(\d{1,3}(?:[.,]\d{3})+(?:[.,]\d{2})?|\d{3,7}(?:[.,]\d{2})?)|(\d{1,3}(?:[.,]\d{3})+(?:[.,]\d{2})?|\d{3,7}(?:[.,]\d{2})?)\s*(?:TRY|TL|₺)/gi;
+
+export function detectProductBrand(text: string): string | undefined {
+  const lower = text.toLocaleLowerCase("tr-TR");
+  return KNOWN_BRANDS.find((brand) => lower.includes(brand));
+}
+
+export function detectProductIdentifiers(text: string): string[] {
+  return [...new Set(text.toLocaleLowerCase("tr-TR").match(/\b(?=[a-z0-9-]*[a-z])(?=[a-z0-9-]*\d)[a-z0-9-]{2,}\b/g) ?? [])];
+}
 
 function parseNumber(raw: string): number | undefined {
 
@@ -51,7 +60,7 @@ function productIdentity(title: string): { brand?: string; model?: string } {
   };
 }
 
-export function normalizeProductResults(sources: WebSource[]): ProductResult[] {
+export function normalizeProductResults(sources: WebSource[], requiredBrand?: string, requiredIdentifiers: string[] = []): ProductResult[] {
   return sources.flatMap((source): ProductResult[] => {
     let url: URL;
     try {
@@ -61,11 +70,13 @@ export function normalizeProductResults(sources: WebSource[]): ProductResult[] {
     }
     if (REJECTED_DOMAIN.test(source.domain) || REJECTED_PATH.test(`${url.pathname}${url.search}`) || GENERIC_TITLE.test(source.title)) return [];
     const evidence = `${source.title} ${source.snippet}`;
+    const lowerEvidence = evidence.toLocaleLowerCase("tr-TR");
+    if (requiredBrand && !lowerEvidence.includes(requiredBrand)) return [];
+    if (requiredIdentifiers.some((identifier) => !lowerEvidence.includes(identifier))) return [];
     const listingUrl = LISTING_URL.test(url.pathname);
     if (!listingUrl && !LISTING_EVIDENCE.test(evidence)) return [];
     const priceTRY = parseSalePrice(evidence, listingUrl);
     if (priceTRY === undefined) return [];
-    const lowerEvidence = evidence.toLocaleLowerCase("tr-TR");
     const features = FEATURE_TERMS.filter((term) => lowerEvidence.includes(term));
     const identity = productIdentity(source.title);
     const availability = /stokta yok|stok dışı|tükendi/i.test(evidence)

@@ -49,3 +49,25 @@ test("product search stops after the primary result has enough grounded listings
   assert.equal(attempts, 1);
   assert.equal(result.products.length, 2);
 });
+
+test("product search rejects listings that mismatch an explicitly requested brand", async () => {
+  const result = await searchProducts("Samsung Galaxy A16 telefon", undefined, async () => ({
+    sources: [source("Apple iPhone 16", "https://shop.example/urun/apple-iphone-16", "Sepete ekle. Satış fiyatı: 59.999 TL. Stokta.")],
+    research: { requested: true, status: "completed", provider: "tavily", retrievedAt },
+  }));
+
+  assert.deepEqual(result.products, []);
+});
+
+test("product search rejects listings that mismatch an explicit model identifier", async () => {
+  const result = await searchProducts("Samsung Galaxy A16 telefon", undefined, async () => ({
+    sources: [
+      source("Samsung Galaxy A14", "https://shop.example/urun/samsung-galaxy-a14", "Sepette 7.600 TL. Stokta."),
+      source("Samsung Galaxy A16", "https://shop.example/urun/samsung-galaxy-a16", "Sepette 11.039,04 TL. Stokta."),
+    ],
+    research: { requested: true, status: "completed", provider: "tavily", retrievedAt },
+  }));
+
+  assert.equal(result.products.length, 1);
+  assert.equal(result.products[0].title, "Samsung Galaxy A16");
+});

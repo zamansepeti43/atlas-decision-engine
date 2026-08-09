@@ -10,6 +10,12 @@ import { searchWeb } from "../services/web-search.js";
 
 const router = Router();
 
+type VercelRequest = Request & { body: unknown };
+type VercelResponse = Response & {
+  status(code: number): VercelResponse;
+  json(body: unknown): VercelResponse;
+};
+
 function responseConfidence(products: RankedProduct[], sources: WebSource[], research: ResearchStatus): number {
   if (products.length) return products[0].confidence;
   if (research.status === "completed") return sources.length ? 0.7 : 0.45;
@@ -17,7 +23,7 @@ function responseConfidence(products: RankedProduct[], sources: WebSource[], res
   return 0.6;
 }
 
-router.post("/", async (req: Request, res: Response) => {
+router.post("/", async (req: VercelRequest, res: VercelResponse) => {
   const parsed = parseChatInput(req.body);
   if (!parsed.ok) {
     return res.status(400).json({

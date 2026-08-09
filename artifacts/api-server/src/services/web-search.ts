@@ -24,6 +24,11 @@ export interface WebSearchOptions {
 }
 
 type Fetcher = typeof fetch;
+type FetchResponse = Awaited<ReturnType<Fetcher>> & {
+  ok: boolean;
+  status: number;
+  json(): Promise<unknown>;
+};
 
 function domainFromUrl(url: string): string {
   try {
@@ -63,7 +68,7 @@ export async function searchWeb(
         ...(options.excludeDomains?.length && { exclude_domains: options.excludeDomains }),
       }),
       signal: AbortSignal.timeout(12_000),
-    });
+    }) as FetchResponse;
 
     if (!response.ok) {
       const authenticationFailure = response.status === 401 || response.status === 403;
