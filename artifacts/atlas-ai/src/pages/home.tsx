@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Brain, LoaderCircle, MemoryStick, RotateCcw, Send, Trash2 } from 'lucide-react';
+import { LoaderCircle, MemoryStick, RotateCcw, Send, Trash2 } from 'lucide-react';
 import { ClarificationCard } from '@/components/chat/ClarificationCard';
 import { EmptyState } from '@/components/chat/EmptyState';
 import { GroundedResults } from '@/components/chat/GroundedResults';
@@ -60,7 +60,7 @@ export default function Home() {
       <div className="relative z-10 mx-auto flex min-h-[100dvh] w-full max-w-5xl flex-col px-4 py-6 md:px-8 md:py-10">
         <header className="mb-6 flex flex-wrap items-center justify-between gap-3 border-b border-border/70 pb-5">
           <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/15 text-primary"><Brain className="h-4 w-4" aria-hidden="true" /></div>
+            <img src="/favicon.svg" alt="Atlas" className="h-10 w-10 shrink-0 rounded-lg object-contain" />
             <div><h1 className="font-serif text-2xl font-bold">Atlas <span className="text-primary">AI</span></h1><p className="text-xs text-muted-foreground">Birlikte düşünen karar asistanı</p></div>
           </div>
           <div className="flex flex-wrap items-center justify-end gap-2">
