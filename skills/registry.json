@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": [
+    {"name":"atlas-project-development","source":"local","purpose":"inspect-plan-implement-test-verify-report"},
+    {"name":"webapp-testing","source":"ComposioHQ/awesome-claude-skills","purpose":"browser and web-app validation"},
+    {"name":"playwright-browser-automation","source":"ComposioHQ/awesome-claude-skills","purpose":"browser automation and UI validation"},
+    {"name":"using-git-worktrees","source":"ComposioHQ/awesome-claude-skills","purpose":"isolated git work"},
+    {"name":"subagent-driven-development","source":"ComposioHQ/awesome-claude-skills","purpose":"split complex work into controlled subtasks"},
+    {"name":"skill-creator","source":"ComposioHQ/awesome-claude-skills","purpose":"create and refine reusable skills"}
+  ]
+}
