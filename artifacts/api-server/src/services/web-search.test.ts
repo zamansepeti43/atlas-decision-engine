@@ -44,8 +44,9 @@ test("web search forwards explicit domain constraints to Tavily", async () => {
   await searchWeb("test", "key", async (_url, init) => {
     requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
     return new Response(JSON.stringify({ results: [] }), { status: 200 });
-  }, { includeDomains: ["shop.example"], excludeDomains: ["social.example"] });
+  }, { includeDomains: ["shop.example"], excludeDomains: ["social.example"], searchDepth: "advanced" });
 
   assert.deepEqual(requestBody.include_domains, ["shop.example"]);
   assert.deepEqual(requestBody.exclude_domains, ["social.example"]);
+  assert.equal(requestBody.search_depth, "advanced");
 });

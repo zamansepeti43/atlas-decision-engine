@@ -21,6 +21,7 @@ export interface WebSearchResult {
 export interface WebSearchOptions {
   includeDomains?: string[];
   excludeDomains?: string[];
+  searchDepth?: "basic" | "advanced";
 }
 
 type Fetcher = typeof fetch;
@@ -60,7 +61,7 @@ export async function searchWeb(
       body: JSON.stringify({
         api_key: apiKey,
         query: query.trim().slice(0, 500),
-        search_depth: "basic",
+        search_depth: options.searchDepth ?? "basic",
         max_results: 8,
         include_answer: false,
         include_raw_content: false,

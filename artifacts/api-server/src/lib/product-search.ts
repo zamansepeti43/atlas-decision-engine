@@ -62,7 +62,7 @@ export async function searchProducts(
 
   const pricedCandidateCount = candidates.filter((candidate) => candidate.priceTRY !== undefined).length;
   if (primary.research.status === "completed" && pricedCandidateCount < TARGET_PRODUCT_COUNT && backfillQuery) {
-    const backfill = await searcher(backfillQuery, { includeDomains: TURKISH_MERCHANT_DOMAINS });
+    const backfill = await searcher(backfillQuery, { includeDomains: TURKISH_MERCHANT_DOMAINS, searchDepth: "advanced" });
     if (backfill.research.status === "completed") {
       sources = mergeSources(sources, backfill.sources);
       candidates = applyFilters(normalize(sources));
