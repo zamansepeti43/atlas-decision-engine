@@ -94,8 +94,9 @@ router.post("/", async (req: VercelRequest, res: VercelResponse) => {
   } else if (plan.requiresResearch && sources.length === 0) {
     reply = "Web araştırması tamamlandı ancak bu sorgu için doğrulanabilir güncel kaynak bulunamadı.";
   } else if (isProductOperation) {
+    const merchantVerifiedCount = products.filter((product) => product.priceVerification === "merchant_page").length;
     reply = decision?.recommendation
-      ? `Gerçek kaynaklardan ${products.length} fiyatlı ürün doğrulandı. Benim önerim: ${decision.recommendation.title}. ${decision.summary}`
+      ? `Gerçek ürün sayfalarından ${products.length} fiyatlı seçenek bulundu${merchantVerifiedCount ? `; ${merchantVerifiedCount} fiyat mağaza sayfasından doğrulandı` : "; fiyatlar arama anındaki kaynak görüntüsüdür"}. Benim önerim: ${decision.recommendation.title}. ${decision.summary}`
       : "Web kaynakları tarandı ancak açık ürün adı, doğrulanabilir TL fiyatı ve kaynak URL'si birlikte bulunan bir sonuç çıkarılamadı.";
   } else if (!plan.requiresResearch && plan.intent === "conversation" && memoryCandidates.length > 0) {
     reply = "Tercihinizi anladım. Güncel ürün veya fiyat önermeden bu bilgiyi sonraki karşılaştırmada kullanabilirim.";

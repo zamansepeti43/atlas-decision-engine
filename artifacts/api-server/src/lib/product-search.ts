@@ -71,7 +71,13 @@ export async function searchProducts(
   const verify: ProductPriceVerifier = verifier ?? (searcher === defaultSearcher
     ? verifyProductPrice
     : async (candidate) => candidate.priceTRY !== undefined && candidate.currency === "TRY" ? candidate as ProductResult : null);
-  const products = (await Promise.all(candidates.map((candidate) => verify(candidate))))
+  const products = (await Promise.all(candidates.map(async (candidate) => {
+    const verified = await verify(candidate);
+    if (verified) return verified;
+    return candidate.priceTRY !== undefined && candidate.currency === "TRY"
+      ? { ...candidate, priceVerification: "search_snapshot" as const } as ProductResult
+      : null;
+  })))
     .filter((product): product is ProductResult => product !== null);
 
   return { sources, products, research: primary.research };

@@ -70,6 +70,9 @@ export function buildDecision(rankedProducts: RankedProduct[], options: RankingO
   const alternatives = rankedProducts.slice(1, 4);
   const nextPrice = alternatives[0]?.priceTRY;
   const savings = nextPrice !== undefined ? nextPrice - winner.priceTRY : undefined;
+  const priceEvidence = winner.priceVerification === "merchant_page"
+    ? "mağaza sayfasından doğrulanan seçenekler"
+    : "arama sonuçlarında açık fiyatı bulunan seçenekler";
   const reasons = [
     ...(winner.scoreComponents.budgetFit >= 35 ? ["Belirtilen bütçe içinde kalıyor."] : []),
     ...(winner.matchedTerms.length ? [`Tercihlerle eşleşen özellikler: ${winner.matchedTerms.join(", ")}.`] : []),
@@ -87,7 +90,7 @@ export function buildDecision(rankedProducts: RankedProduct[], options: RankingO
     tradeoffs,
     confidence: winner.confidence,
     summary: options.pricePriority
-      ? `${winner.source.domain} üzerindeki ${formatTRY(winner.priceTRY)} TL fiyat, doğrulanan seçenekler içinde en uygun${savings && savings > 0 ? ` ve sonraki seçenekten ${formatTRY(savings)} TL daha uygun` : ""}.`
+      ? `${winner.source.domain} üzerindeki ${formatTRY(winner.priceTRY)} TL fiyat, ${priceEvidence} içinde en uygun${savings && savings > 0 ? ` ve sonraki seçenekten ${formatTRY(savings)} TL daha uygun` : ""}.${winner.priceVerification === "search_snapshot" ? " Satın almadan önce mağaza sayfasındaki fiyatı kontrol edin." : ""}`
       : `${winner.title}, yalnızca mevcut fiyat ve metin eşleşmelerine göre en yüksek puanı aldı (${winner.score}/100).`,
     rankedProducts,
   };

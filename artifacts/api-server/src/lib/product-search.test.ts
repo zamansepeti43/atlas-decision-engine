@@ -148,3 +148,19 @@ test("product pages without a snippet price are offered to the merchant verifier
   assert.equal(verifiedUrl, "https://shop.example/urun/puma-anzarun");
   assert.equal(result.products[0]?.priceTRY, 2_100);
 });
+
+test("explicit snippet prices remain labeled snapshots when merchant verification is blocked", async () => {
+  const result = await searchProducts(
+    "Puma Anzarun ayakkabı en uygun",
+    undefined,
+    async () => ({
+      sources: [source("Puma Anzarun Lite Spor Ayakkabı", "https://shop.example/urun/puma-anzarun", "Satış fiyatı: 2.250 TL")],
+      research: { requested: true, status: "completed", provider: "tavily", retrievedAt },
+    }),
+    { brand: "puma", category: "ayakkabı" },
+    async () => null,
+  );
+
+  assert.equal(result.products[0]?.priceTRY, 2_250);
+  assert.equal(result.products[0]?.priceVerification, "search_snapshot");
+});

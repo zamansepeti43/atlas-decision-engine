@@ -55,7 +55,7 @@ export interface ProductMetadata {
   features: string[];
   availability?: 'in_stock' | 'out_of_stock';
   retrievedAt: string;
-  priceVerification?: 'merchant_page';
+  priceVerification?: 'merchant_page' | 'search_snapshot';
   priceVerifiedAt?: string;
   score?: number;
   scoreComponents?: {
