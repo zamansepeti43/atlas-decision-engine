@@ -1,16 +1,65 @@
 import type { ProductResult, WebSource } from "./chat-types.js";
 
+export type ProductCandidate = Omit<ProductResult, "priceTRY" | "currency"> & {
+  priceTRY?: number;
+  currency?: "TRY";
+};
+
 const REJECTED_DOMAIN = /(^|\.)(youtube\.com|youtu\.be|instagram\.com|facebook\.com|tiktok\.com|twitter\.com|x\.com|reddit\.com|onedio\.com|technopat\.net)$/i;
 const REJECTED_PATH = /\/(haber|blog|forum|sosyal|reel|watch|kategori|category)(\/|$)|-(?:x-c|y-s)\d+(?:\?|$)|\/c-\d+(?:\?|$)/i;
 const GENERIC_TITLE = /(modelleri|markaları|fiyatları|en ucuzu|önerileri|önerisi|tavsiye|\baltı\b|altında|bandında|listesi|karşılaştırma|rehberi|kampanyaları)/i;
 const LISTING_URL = /(?:-p-\d+|\/dp\/[A-Z0-9]+|\/gp\/product\/|-[pm]-[A-Z0-9]+|\/product\/|\/urun\/|\/products?\/|\/p\/)/i;
 const LISTING_EVIDENCE = /(sepete ekle|satın al|stokta|stok mevcut|ürün kodu|model no|sku)/i;
-const SALE_PRICE_CONTEXT = /(satış fiyatı|indirimli fiyat|sepette|fiyatı?\s*:|şimdi\s+sadece|bugüne özel)/i;
+const SALE_PRICE_PREFIX = /(satış fiyatı|indirimli fiyat|sepette|fiyatı?\s*:|şimdi\s+sadece|bugüne özel|tek seferlik satın alma|priceAmount|displayPrice)[^\d]{0,20}$/i;
+const SALE_PRICE_SUFFIX = /^\s*(satış fiyatı|indirimli fiyat)/i;
 const RANGE_OR_BUDGET_CONTEXT = /(\baltı\b|altında|\büstü\b|üzerinde|bandında|aralığında|bütçe|\d[\d.,]*\s*(?:TL|TRY|₺)?\s*[-–—]\s*\d)/i;
 const NON_SALE_AMOUNT_CONTEXT = /(taksit|\d+\s*x\s*\d|kupon|indirim kodu|kargo|puan|kazanç|ek hizmet|ek garanti|premium|hediye)/i;
 const KNOWN_BRANDS = ["adidas", "nike", "puma", "skechers", "new balance", "asics", "reebok", "under armour", "vans", "hoka", "apple", "samsung", "xiaomi", "lenovo", "dell", "asus", "acer", "sony", "philips"];
 const FEATURE_TERMS = ["hafif", "rahat", "konfor", "koşu", "spor", "günlük", "oyun", "nefes alabilir", "su geçirmez", "dayanıklı"];
 const PRICE_PATTERN = /(?:TRY|TL|₺)\s*(\d{1,3}(?:[.,]\d{3})+(?:[.,]\d{2})?|\d{3,7}(?:[.,]\d{2})?)|(\d{1,3}(?:[.,]\d{3})+(?:[.,]\d{2})?|\d{3,7}(?:[.,]\d{2})?)\s*(?:TRY|TL|₺)/gi;
+
+/**
+ * İstenen ürün kategorisi için kabul edilebilir başlık anahtar sözcükleri.
+ * Ürün başlığı bu anahtar sözcüklerden hiçbirini içermiyorsa ürün,
+ * istenen ürün tipiyle yeterince eşleşmiyor demektir ve elenir.
+ */
+const CATEGORY_KEYWORDS: Record<string, string[]> = {
+  "spor ayakkabı": ["spor ayakkabı", "koşu ayakkabısı", "sneaker", "ayakkabı"],
+  "koşu ayakkabısı": ["koşu", "ayakkabı", "sneaker"],
+  "ayakkabı": ["ayakkabı", "sneaker"],
+  "kulaklık": ["kulaklık", "headset", "earbuds", "airpods", "kablosuz kulaklık"],
+  "televizyon": ["televizyon", "tv", "oled", "qled", "smart tv", "led tv"],
+  "bilgisayar": ["bilgisayar", "laptop", "notebook", "dizüstü", "masaüstü", "desktop", "gaming pc", "oyun bilgisayarı", "workstation", "all-in-one", "macbook"],
+  "laptop": ["laptop", "notebook", "dizüstü", "macbook", "ultrabook", "netbook", "chromebook", "gaming", "oyun bilgisayarı", "thinkpad", "legion", "xps", "pavilion", "inspiron", "ideapad", "rog", "predator", "aspire", "envy", "surface", "alienware", "tuf", "nitro", "victus", "swift", "zenbook"],
+  "telefon": ["telefon", "iphone", "smartphone", "cep telefonu", "android", "galaxy", "redmi", "poco", "pixel", "moto", "oneplus", "realme", "oppo", "honor", "nokia", "xiaomi", "huawei", "infinix"],
+  "tablet": ["tablet", "ipad", "galaxy tab", "kindle", "surface"],
+  "kamera": ["kamera", "fotoğraf", "fotograf", "mirrorless", "dslr", "objektif", "gopro", "action cam"],
+  "monitör": ["monitör", "monitor", "ultrawide"],
+  "saat": ["saat", "watch", "smartwatch", "akıllı saat", "g-shock", "casio", "seiko", "apple watch", "galaxy watch", "mi band"],
+};
+
+function matchesKeyword(text: string, keyword: string): boolean {
+  if (keyword.length <= 2) {
+    return new RegExp(`\\b${keyword.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(text);
+  }
+  return text.includes(keyword);
+}
+
+/** Ürün, istenen kategoriyle yeterince eşleşmiyorsa elenir. Kategori bilinmiyorsa geç. */
+export function isProductRelevantToCategory(product: Pick<ProductCandidate, "title" | "brand">, category?: string): boolean {
+  if (!category) return true;
+  const keywords = CATEGORY_KEYWORDS[category];
+  if (!keywords || keywords.length === 0) return true;
+  const text = `${product.title} ${product.brand ?? ""}`.toLocaleLowerCase("tr-TR");
+  return keywords.some((keyword) => matchesKeyword(text, keyword));
+}
+
+/** Kullanıcının açıkça hariç tuttuğu bir markayı taşıyan ürün elenir. */
+export function isBrandExcluded(product: Pick<ProductCandidate, "title" | "brand" | "model">, excludedBrands: string[] = []): boolean {
+  if (excludedBrands.length === 0) return false;
+  const text = `${product.title} ${product.brand ?? ""} ${product.model ?? ""}`.toLocaleLowerCase("tr-TR");
+  return excludedBrands.some((brand) => text.includes(brand));
+}
 
 export function detectProductBrand(text: string): string | undefined {
   const lower = text.toLocaleLowerCase("tr-TR");
@@ -34,13 +83,15 @@ function parseNumber(raw: string): number | undefined {
   return Number.isFinite(price) && price > 0 ? price : undefined;
 }
 
-function parseSalePrice(text: string, listingUrl: boolean): number | undefined {
+function parseSalePrice(text: string): number | undefined {
   for (const match of text.matchAll(PRICE_PATTERN)) {
     const raw = match[1] ?? match[2];
     if (!raw || match.index === undefined) continue;
     const context = text.slice(Math.max(0, match.index - 60), match.index + match[0].length + 60);
+    const prefix = text.slice(Math.max(0, match.index - 60), match.index);
+    const suffix = text.slice(match.index + match[0].length, match.index + match[0].length + 30);
     if (RANGE_OR_BUDGET_CONTEXT.test(context) || NON_SALE_AMOUNT_CONTEXT.test(context)) continue;
-    if (!listingUrl && !SALE_PRICE_CONTEXT.test(context)) continue;
+    if (!SALE_PRICE_PREFIX.test(prefix) && !SALE_PRICE_SUFFIX.test(suffix)) continue;
     const price = parseNumber(raw);
     if (price !== undefined) return price;
   }
@@ -60,8 +111,8 @@ function productIdentity(title: string): { brand?: string; model?: string } {
   };
 }
 
-export function normalizeProductResults(sources: WebSource[], requiredBrand?: string, requiredIdentifiers: string[] = []): ProductResult[] {
-  return sources.flatMap((source): ProductResult[] => {
+export function normalizeProductCandidates(sources: WebSource[], requiredBrand?: string, requiredIdentifiers: string[] = []): ProductCandidate[] {
+  return sources.flatMap((source): ProductCandidate[] => {
     let url: URL;
     try {
       url = new URL(source.url);
@@ -75,8 +126,7 @@ export function normalizeProductResults(sources: WebSource[], requiredBrand?: st
     if (requiredIdentifiers.some((identifier) => !lowerEvidence.includes(identifier))) return [];
     const listingUrl = LISTING_URL.test(url.pathname);
     if (!listingUrl && !LISTING_EVIDENCE.test(evidence)) return [];
-    const priceTRY = parseSalePrice(evidence, listingUrl);
-    if (priceTRY === undefined) return [];
+    const priceTRY = parseSalePrice(evidence);
     const features = FEATURE_TERMS.filter((term) => lowerEvidence.includes(term));
     const identity = productIdentity(source.title);
     const availability = /stokta yok|stok dışı|tükendi/i.test(evidence)
@@ -88,12 +138,16 @@ export function normalizeProductResults(sources: WebSource[], requiredBrand?: st
       title: source.title,
       ...identity,
       url: source.url,
-      priceTRY,
-      currency: "TRY",
+      ...(priceTRY !== undefined && { priceTRY, currency: "TRY" as const }),
       source: { title: source.title, url: source.url, domain: source.domain },
       features,
       ...(availability && { availability }),
       retrievedAt: source.retrievedAt,
     }];
   });
+}
+
+export function normalizeProductResults(sources: WebSource[], requiredBrand?: string, requiredIdentifiers: string[] = []): ProductResult[] {
+  return normalizeProductCandidates(sources, requiredBrand, requiredIdentifiers)
+    .filter((candidate): candidate is ProductResult => candidate.priceTRY !== undefined && candidate.currency === "TRY");
 }

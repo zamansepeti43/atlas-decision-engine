@@ -39,7 +39,9 @@ import {
   type LearningData,
   type PlanningData,
 } from "./intent-router";
-import { memorySnapshot, type UserMemory } from "./memory";
+import { memorySnapshot, type UserMemory, applyMemoryCandidates, type BackendMemoryCandidate } from "./memory";
+import { analyzeInteraction, type LearningCandidate } from "./learning-engine";
+import { assistantContextSnapshot } from "./assistant-store";
 
 // ─── Public types ─────────────────────────────────────────────────────────────
 
@@ -88,7 +90,7 @@ export type ProcessResult =
       content: ClarificationContent;
       context: CollectedContext;
     }
-  | { type: "response"; data: AtlasResponseData; context: CollectedContext };
+  | { type: "response"; data: AtlasResponseData; context: CollectedContext; learning?: LearningCandidate[] };
 
 export interface ConversationHistoryEntry {
   role: "user" | "assistant";
@@ -579,8 +581,10 @@ export function assessClarificationNeeds(
     const hasOptions =
       ctx.options.length >= 2 || /mi yoksa|vs|hangisi|karşılaştır/.test(lower);
     const isDetailed = question.length > 80;
+    const statesConcreteNeed =
+      /(ar[iı]yorum|bak[iı]yorum|almak istiyorum|satın almak istiyorum|ihtiyac[iı]m var)\b/.test(lower);
 
-    if (hasPriorities || (hasOptions && hasBudgetInfo) || isDetailed)
+    if (hasPriorities || (hasOptions && hasBudgetInfo) || isDetailed || statesConcreteNeed)
       return { needed: false };
     return { needed: true, content: buildDecisionClarification(question, ctx) };
   }
@@ -1156,14 +1160,38 @@ export async function processUserTurn(
     }
   }
 
-  // Canonical live path: all intents are answered by the structured backend.
+   // Canonical live path: all intents are answered by the structured backend.
   const requestMessage = isAnsweringClarification
     ? [ctx.originalQuestion, ...ctx.clarificationAnswers].join("\n")
     : userMessage;
-  const memorySummary = memory.permissionGranted
-    ? memorySnapshot(memory).join("\n")
-    : "";
+  const memoryLines = memory.permissionGranted ? memorySnapshot(memory) : [];
+  const memorySummary = [...memoryLines, ...assistantContextSnapshot()].join("\n");
   const data = await processQuery(requestMessage, history, memorySummary);
 
-  return { type: "response", data, context: ctx };
+  // Learning Engine: analyze the turn (user statement + bot reply for correction
+  // detection) and persist explicit, conflict-resolved candidates to memory.
+  const responsePayload = data.data;
+  const botReply = (
+    "message" in responsePayload
+      ? responsePayload.message
+      : "content" in responsePayload
+        ? responsePayload.content
+        : ""
+  ).trim();
+  const responseDomain = "kind" in data && data.kind === "backend"
+    ? data.metadata.domain
+    : undefined;
+  const candidates = analyzeInteraction({
+    userMessage,
+    botReply: botReply || undefined,
+    ctx: { intent: ctx.intent, domain: responseDomain ?? ctx.intent, category: undefined },
+    memory,
+  });
+  if (candidates.length) {
+    applyMemoryCandidates(
+      candidates.map((c) => ({ ...c, reason: c.learning })) as BackendMemoryCandidate[],
+    );
+  }
+
+  return { type: "response", data, context: ctx, ...(candidates.length ? { learning: candidates } : {}) } as ProcessResult;
 }

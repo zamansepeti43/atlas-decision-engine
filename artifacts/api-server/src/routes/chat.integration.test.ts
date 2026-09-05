@@ -97,3 +97,59 @@ test("decision follow-up reuses only grounded prior products without a new searc
     assert.match(String(result.body.message), /Benim önerim/i, message);
   }
 });
+
+test("auto part request without a concrete part returns a blocking follow-up", async () => {
+  const result = await postChat({ message: "BMW için bir parça arıyorum", history: [], memorySummary: "" });
+  const research = result.body.research as Record<string, unknown>;
+
+  assert.equal(result.status, 200);
+  assert.equal(result.body.domain, "otomobil-parca");
+  assert.equal(result.body.operation, "respond");
+  assert.equal(result.body.followUpQuestion, "Hangi parçaya ihtiyacınız var?");
+  assert.match(String(result.body.message), /tek bir bilgiye ihtiyacım var/i);
+  assert.equal(research.status, "not_requested");
+  assert.deepEqual(result.body.products, []);
+});
+
+test("decision response exposes the detected domain", async () => {
+  const result = await postChat({ message: "30 bin TL'ye oyun laptopu öner", history: [], memorySummary: "" });
+
+  assert.equal(result.status, 200);
+  assert.equal(result.body.domain, "teknoloji");
+  assert.equal(result.body.operation, "price_comparison");
+  assert.equal(result.body.intent, "decision");
+  assert.match(String(result.body.message), /doğrulayamıyorum/i);
+});
+
+test("brand rejection is stored and honored for a product request", async () => {
+  const result = await postChat({
+    message: "30 bin TL'ye telefon öner, Apple istemiyorum",
+    history: [],
+    memorySummary: "",
+  });
+  const candidates = result.body.memoryCandidates as Array<Record<string, unknown>>;
+
+  assert.equal(result.status, 200);
+  assert.equal(result.body.domain, "teknoloji");
+  assert.equal(result.body.operation, "price_comparison");
+  const exclusion = candidates.find((candidate) => candidate.key === "exclusion");
+  assert.equal(exclusion?.value, "apple");
+  assert.equal(exclusion?.confidence, 0.95);
+  assert.equal(exclusion?.scope, "user");
+  assert.equal(exclusion?.source, "explicit_feedback");
+  for (const product of result.body.products as Array<Record<string, unknown>>) {
+    assert.doesNotMatch(String(product.title), /apple/i);
+  }
+});
+
+test("standalone brand corrections are recorded without triggering research", async () => {
+  const result = await postChat({ message: "Ben Apple istemiyorum.", history: [], memorySummary: "" });
+  const research = result.body.research as Record<string, unknown>;
+  const candidates = result.body.memoryCandidates as Array<Record<string, unknown>>;
+
+  assert.equal(result.status, 200);
+  assert.equal(result.body.operation, "respond");
+  assert.equal(research.status, "not_requested");
+  assert.ok(candidates.some((candidate) => candidate.key === "exclusion" && candidate.value === "apple"));
+  assert.match(String(result.body.message), /Tercihinizi anladım/i);
+});

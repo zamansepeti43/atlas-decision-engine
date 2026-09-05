@@ -4,7 +4,7 @@ import { parseChatInput } from "../lib/chat-input.js";
 import type { AtlasChatErrorResponse, AtlasChatResponse, ComparisonResult, RankedProduct, ResearchStatus, WebSource } from "../lib/chat-types.js";
 import { buildDecision, rankProducts } from "../lib/decision-scoring.js";
 import { searchProducts } from "../lib/product-search.js";
-import { buildMemoryCandidates, planRequest } from "../lib/request-planner.js";
+import { buildFollowUpNeed, buildMemoryCandidates, planRequest } from "../lib/request-planner.js";
 import { askGroq } from "../services/groq.js";
 import { searchWeb } from "../services/web-search.js";
 
@@ -44,19 +44,25 @@ router.post("/", async (req: VercelRequest, res: VercelResponse) => {
     .slice(-4)
     .map((entry) => entry.content)
     .join("\n");
-  const initialPlan = planRequest(message, conversationContext);
+  const initialPlan = planRequest(message, conversationContext, memorySummary);
   const plan = priorProducts.length > 0 && initialPlan.intent === "decision" && !initialPlan.requiresResearch
     ? { ...initialPlan, operation: "price_comparison" as const }
     : initialPlan;
+  const followUp = buildFollowUpNeed(plan);
+  const blockingFollowUp = followUp?.blocking === true;
   const memoryCandidates = buildMemoryCandidates(plan.context);
   let sources: WebSource[] = [];
   let research: ResearchStatus = { requested: false, status: "not_requested" };
   const isProductOperation = plan.operation === "product_search" || plan.operation === "price_comparison";
   let normalizedProducts = !plan.requiresResearch && isProductOperation ? priorProducts : [];
 
-  if (plan.requiresResearch && plan.query) {
+  if (plan.requiresResearch && plan.query && !blockingFollowUp) {
     if (isProductOperation) {
-      const searchResult = await searchProducts(plan.query, plan.backfillQuery);
+      const searchResult = await searchProducts(plan.query, plan.backfillQuery, undefined, {
+        ...(plan.context.brand && { brand: plan.context.brand }),
+        ...(plan.context.category && { category: plan.context.category }),
+        ...(plan.context.excludedBrands.length > 0 && { excludeBrands: plan.context.excludedBrands }),
+      });
       sources = searchResult.sources;
       research = searchResult.research;
       normalizedProducts = searchResult.products;
@@ -67,22 +73,21 @@ router.post("/", async (req: VercelRequest, res: VercelResponse) => {
     }
   }
 
-  const products = rankProducts(normalizedProducts, plan.context);
-  const decision = buildDecision(products);
+  const pricePriority = plan.operation === "price_comparison";
+  const products = rankProducts(normalizedProducts, plan.context, { pricePriority });
+  const decision = buildDecision(products, { pricePriority });
   const comparison: ComparisonResult | undefined = products.length > 1 ? {
     criteria: ["budgetFit", "preferenceFit", "useCaseFit", "featureFit", "valueScore"],
     products,
   } : undefined;
   const confidence = responseConfidence(products, sources, research);
-  const followUpQuestion = plan.intent === "decision" && plan.context.budgetTRY === undefined
-    ? "Yaklaşık TL bütçeniz nedir?"
-    : plan.intent === "decision" && plan.context.preferences.length === 0
-      ? "Sizin için en önemli kullanım veya özellik nedir?"
-      : undefined;
+  const followUpQuestion = followUp?.question;
   const prompt = buildAtlasPrompt({ message, history, memorySummary, plan, sources, products, decision, research });
 
   let reply: string;
-  if (plan.requiresResearch && research.status !== "completed") {
+  if (blockingFollowUp) {
+    reply = "Aramaya ve karşılaştırmaya geçmeden önce tek bir bilgiye ihtiyacım var:";
+  } else if (plan.requiresResearch && research.status !== "completed") {
     reply = research.status === "unavailable"
       ? "Web araştırması şu anda kullanılamıyor. Bu nedenle güncel ürün, fiyat, mağaza veya kaynak doğrulayamıyorum."
       : "Web araştırması tamamlanamadı. Bu nedenle güncel ürün, fiyat, mağaza veya kaynak doğrulayamıyorum.";
@@ -104,6 +109,7 @@ router.post("/", async (req: VercelRequest, res: VercelResponse) => {
         error: "AI servisi kullanılamıyor.",
         message: "Atlas şu anda yanıt üretemiyor. Lütfen daha sonra tekrar deneyin.",
         intent: plan.intent,
+        domain: plan.context.domain,
         sources,
         products,
         confidence,
@@ -120,6 +126,7 @@ router.post("/", async (req: VercelRequest, res: VercelResponse) => {
     message: reply,
     reply,
     intent: plan.intent,
+    domain: plan.context.domain,
     operation: plan.operation,
     sources,
     products,

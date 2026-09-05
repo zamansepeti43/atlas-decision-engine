@@ -73,10 +73,10 @@ export function GroundedResults({ metadata }: Props) {
                       </a>
                     )}
                   </div>
-                  <div className="mt-3 flex flex-wrap items-center gap-2"><p className="text-sm font-medium text-primary">{formatPrice(product.priceTRY)}</p>{product.score !== undefined && <span className="rounded-md border border-border px-2 py-0.5 text-xs text-muted-foreground">Puan {product.score}/100</span>}</div>
+                  <div className="mt-3 flex flex-wrap items-center gap-2"><p className="text-sm font-medium text-primary">{formatPrice(product.priceTRY)}</p>{product.priceVerification === 'merchant_page' && <span className="rounded-md border border-emerald-500/30 px-2 py-0.5 text-xs text-emerald-400">Mağaza sayfasından doğrulandı</span>}{product.score !== undefined && <span className="rounded-md border border-border px-2 py-0.5 text-xs text-muted-foreground">Puan {product.score}/100</span>}</div>
                   {product.availability && <p className="mt-2 text-xs text-muted-foreground">{product.availability === 'in_stock' ? 'Kaynakta stokta' : 'Kaynakta stokta değil'}</p>}
                   {product.features.length > 0 && <p className="mt-2 text-xs text-muted-foreground">Özellikler: {product.features.join(', ')}</p>}
-                  {retrievedAt && <p className="mt-2 text-[11px] text-muted-foreground/70">Alınma zamanı: {retrievedAt}</p>}
+                  {retrievedAt && <p className="mt-2 text-[11px] text-muted-foreground/70">{product.priceVerification === 'merchant_page' ? 'Fiyat doğrulama zamanı' : 'Alınma zamanı'}: {retrievedAt}</p>}
                 </article>
               );
             })}

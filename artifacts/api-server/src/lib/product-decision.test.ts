@@ -25,9 +25,11 @@ test("normalization keeps only plausible products and explicit TRY prices", () =
 
 test("ranking transparently favors available budget and textual use-case evidence", () => {
   const ranked = rankProducts(normalizeProductResults(sources), {
+    domain: "genel",
     budgetTRY: 30_000,
     preferences: ["oyun"],
     useCase: "oyun oynamak",
+    excludedBrands: [],
   });
   assert.equal(ranked[0].title, "Lenovo Legion 16 Laptop");
   assert.equal(ranked[0].scoreComponents.budgetFit, 35);
@@ -77,6 +79,56 @@ test("promotional savings and add-on service fees are never parsed as sale price
   const nonSaleAmounts: WebSource[] = [
     { title: "Samsung Galaxy A16", url: "https://shop.example/urun/samsung-galaxy-a16", snippet: "8.500 TL'ye varan kazançla eski telefonunu yenile.", domain: "shop.example", retrievedAt },
     { title: "Samsung Galaxy A16", url: "https://shop.example/urun/samsung-galaxy-a16", snippet: "Ek Hizmetler. 1 Yıl Ek Garanti. 334 TL. 2 ay ücretsiz Premium.", domain: "shop.example", retrievedAt },
+    { title: "Puma Anzarun Spor Ayakkabı", url: "https://shop.example/urun/puma-anzarun", snippet: "Üyelere özel 300 TL avantaj. Ürünü hemen inceleyin.", domain: "shop.example", retrievedAt },
   ];
   assert.deepEqual(normalizeProductResults(nonSaleAmounts), []);
 });
+
+test("ranking excludes brands the user explicitly rejected even if the search let them through", () => {
+  const withApple: WebSource[] = [
+    { title: "Apple iPhone 16", url: "https://shop.example/product/apple-iphone-16", snippet: "Telefon. Satış fiyatı: 59.999 TL. Stokta.", domain: "shop.example", retrievedAt },
+    { title: "Samsung Galaxy A16", url: "https://store.example/urun/samsung-galaxy-a16", snippet: "Telefon. Satış fiyatı: 11.039 TL. Stokta.", domain: "store.example", retrievedAt },
+  ];
+  const ranked = rankProducts(normalizeProductResults(withApple), {
+    domain: "teknoloji",
+    preferences: [],
+    excludedBrands: ["apple"],
+  });
+
+  assert.equal(ranked.length, 1);
+  assert.match(ranked[0].title, /Samsung/i);
+});
+
+test("ranking drops products irrelevant to the requested category before scoring", () => {
+  const mixed: WebSource[] = [
+    { title: "Lenovo Legion 16 Laptop", url: "https://shop.example/product/lenovo-legion-16", snippet: "32 GB oyun laptop. Satış fiyatı: 29.999 TL. Stokta.", domain: "shop.example", retrievedAt },
+    { title: "Babycim Piyanolu Oyun Halısı - Baykuş Desenli - Fiyatı, Yorumları", url: "https://shop.example/urun/babycim-hali", snippet: "Sepete ekle. Satış fiyatı: 1.999 TL. Stokta.", domain: "shop.example", retrievedAt },
+  ];
+  const ranked = rankProducts(normalizeProductResults(mixed), {
+    domain: "teknoloji",
+    category: "laptop",
+    preferences: [],
+    excludedBrands: [],
+  });
+
+  assert.equal(ranked.length, 1);
+  assert.match(ranked[0].title, /Lenovo/i);
+});
+
+  test("price comparison recommends the cheapest verified listing for the same product", () => {
+    const products = normalizeProductResults([
+      { title: "Puma Anzarun Lite", url: "https://first.example/urun/puma-anzarun", snippet: "Satış fiyatı: 2.500 TL", domain: "first.example", retrievedAt },
+      { title: "Puma Anzarun Lite", url: "https://second.example/urun/puma-anzarun", snippet: "Satış fiyatı: 2.200 TL", domain: "second.example", retrievedAt },
+    ]).map((product) => ({ ...product, priceVerification: "merchant_page" as const }));
+
+    const ranked = rankProducts(products, {
+      domain: "genel",
+      preferences: [],
+      excludedBrands: [],
+    }, { pricePriority: true });
+    const decision = buildDecision(ranked, { pricePriority: true });
+
+    assert.equal(ranked[0].priceTRY, 2_200);
+    assert.equal(decision?.recommendation?.source.domain, "second.example");
+    assert.match(decision?.summary ?? "", /300 TL daha uygun/);
+  });

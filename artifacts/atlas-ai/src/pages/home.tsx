@@ -7,6 +7,7 @@ import { GroundedResults } from '@/components/chat/GroundedResults';
 import { useConversation } from '@/hooks/useConversation';
 import { detectIntentSync, type AtlasResponseData } from '@/lib/intent-router';
 import { memorySnapshot } from '@/lib/memory';
+import { SidebarTrigger } from '@/components/ui/sidebar';
 
 const PLACEHOLDERS = [
   '40.000 TL bütçem var. Hangi telefonu almalıyım?',
@@ -40,36 +41,62 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
+    const viewport = window.visualViewport;
+    const mobile = window.matchMedia('(max-width: 767px)');
+    if (!viewport || !mobile.matches) return;
+
+    const syncViewportHeight = () => {
+      document.documentElement.style.setProperty('--atlas-viewport-height', `${viewport.height}px`);
+    };
+
+    syncViewportHeight();
+    viewport.addEventListener('resize', syncViewportHeight);
+    return () => {
+      viewport.removeEventListener('resize', syncViewportHeight);
+      document.documentElement.style.removeProperty('--atlas-viewport-height');
+    };
+  }, []);
+
+  useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
   }, [conversation.messages, conversation.isThinking]);
+
+  useEffect(() => {
+    const reset = () => conversation.reset();
+    window.addEventListener('atlas-new-conversation', reset);
+    return () => window.removeEventListener('atlas-new-conversation', reset);
+  }, [conversation.reset]);
 
   const submit = (value = question) => {
     const trimmed = value.trim();
     if (!trimmed || conversation.isThinking) return;
     setQuestion('');
     void conversation.sendMessage(trimmed);
-    window.setTimeout(() => textareaRef.current?.focus(), 50);
+    if (window.matchMedia('(min-width: 768px)').matches) {
+      window.setTimeout(() => textareaRef.current?.focus(), 50);
+    }
   };
 
   const intentPreview = question.trim().length >= 8 ? detectIntentSync(question) : null;
   const memoryLines = memorySnapshot(conversation.memory);
 
   return (
-    <main className="min-h-[100dvh] w-full bg-background text-foreground">
+    <main className="relative h-[var(--atlas-viewport-height,100dvh)] min-w-0 flex-1 overflow-hidden bg-background text-foreground md:h-[100dvh]">
       <div className="pointer-events-none fixed inset-0 bg-gradient-to-b from-primary/5 via-transparent to-transparent" />
-      <div className="relative z-10 mx-auto flex min-h-[100dvh] w-full max-w-5xl flex-col px-4 py-6 md:px-8 md:py-10">
-        <header className="mb-6 flex flex-wrap items-center justify-between gap-3 border-b border-border/70 pb-5">
-          <div className="flex items-center gap-3">
-            <img src="/favicon.svg" alt="Atlas" className="h-10 w-10 shrink-0 rounded-lg object-contain" />
-            <div><h1 className="font-serif text-2xl font-bold">Atlas <span className="text-primary">AI</span></h1><p className="text-xs text-muted-foreground">Birlikte düşünen karar asistanı</p></div>
+      <div className="relative z-10 flex h-full min-h-0 w-full flex-col md:mx-auto md:max-w-5xl md:px-8 md:pt-6">
+        <header className="flex h-16 w-full shrink-0 items-center justify-between gap-2 border-b border-border/70 px-4 md:mb-4 md:h-auto md:px-0 md:pb-4">
+          <div className="flex min-w-0 items-center gap-2 md:gap-3">
+            <SidebarTrigger aria-label="Menüyü aç" />
+            <img src="/favicon.svg" alt="Atlas" className="h-9 w-9 shrink-0 rounded-lg object-contain md:h-10 md:w-10" />
+            <div className="min-w-0"><h1 className="whitespace-nowrap font-serif text-xl font-bold md:text-2xl">Atlas <span className="text-primary">AI</span></h1><p className="hidden text-xs text-muted-foreground sm:block">Birlikte düşünen karar asistanı</p></div>
           </div>
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            <button type="button" onClick={conversation.memory.permissionGranted ? conversation.revokeMemory : conversation.grantMemory} aria-pressed={conversation.memory.permissionGranted} className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-xs text-muted-foreground hover:border-primary/40 hover:text-foreground">
+          <div className="flex shrink-0 items-center justify-end gap-1.5 md:gap-2">
+            <button type="button" onClick={conversation.memory.permissionGranted ? conversation.revokeMemory : conversation.grantMemory} aria-pressed={conversation.memory.permissionGranted} aria-label={conversation.memory.permissionGranted ? 'Hafızayı devre dışı bırak' : 'Hafızayı etkinleştir'} title={conversation.memory.permissionGranted ? 'Hafızayı devre dışı bırak' : 'Hafızayı etkinleştir'} className="flex h-9 w-9 items-center justify-center rounded-lg border border-border bg-card text-xs text-muted-foreground hover:border-primary/40 hover:text-foreground md:h-auto md:w-auto md:gap-2 md:px-3 md:py-2">
               <MemoryStick className="h-3.5 w-3.5" aria-hidden="true" />
-              {conversation.memory.permissionGranted ? 'Hafızayı devre dışı bırak' : 'Hafızayı etkinleştir'}
+              <span className="hidden md:inline">{conversation.memory.permissionGranted ? 'Hafızayı devre dışı bırak' : 'Hafızayı etkinleştir'}</span>
             </button>
-            <button type="button" onClick={conversation.clearMemory} aria-label="Uzun süreli hafızayı temizle" title="Uzun süreli hafızayı temizle" className="rounded-lg border border-border bg-card p-2 text-muted-foreground hover:text-destructive"><Trash2 className="h-4 w-4" aria-hidden="true" /></button>
-            <button type="button" onClick={conversation.reset} aria-label="Sohbeti sıfırla" title="Sohbeti sıfırla" className="rounded-lg border border-border bg-card p-2 text-muted-foreground hover:text-primary"><RotateCcw className="h-4 w-4" aria-hidden="true" /></button>
+            <button type="button" onClick={conversation.clearMemory} aria-label="Uzun süreli hafızayı temizle" title="Uzun süreli hafızayı temizle" className="flex h-9 w-9 items-center justify-center rounded-lg border border-border bg-card text-muted-foreground hover:text-destructive"><Trash2 className="h-4 w-4" aria-hidden="true" /></button>
+            <button type="button" onClick={conversation.reset} aria-label="Sohbeti sıfırla" title="Sohbeti sıfırla" className="flex h-9 w-9 items-center justify-center rounded-lg border border-border bg-card text-muted-foreground hover:text-primary"><RotateCcw className="h-4 w-4" aria-hidden="true" /></button>
           </div>
         </header>
 
@@ -79,15 +106,15 @@ export default function Home() {
           </aside>
         )}
 
-        <section className="flex-1" aria-label="Sohbet">
+        <section className="min-h-0 w-full flex-1 overflow-y-auto overscroll-contain px-4 py-2 md:px-1 md:py-0" aria-label="Sohbet">
           {conversation.messages.length === 0 ? <EmptyState onSuggestion={submit} /> : (
-            <div className="mx-auto max-w-3xl space-y-5 pb-8" aria-live="polite">
+            <div className="w-full space-y-4 py-2 pb-5 md:mx-auto md:max-w-3xl md:space-y-5" aria-live="polite">
               {conversation.messages.map((message) => {
                 const response = isBackendResponse(message.richContent) ? message.richContent : null;
                 return (
-                  <motion.article key={message.id} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className={message.role === 'user' ? 'ml-auto max-w-[85%]' : 'mr-auto w-full max-w-[92%]'}>
+                  <motion.article key={message.id} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className={message.role === 'user' ? 'ml-auto max-w-[90%] md:max-w-[85%]' : 'mr-auto w-full max-w-[96%] md:max-w-[92%]'}>
                     <p className="mb-1 px-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">{message.role === 'user' ? 'Sen' : 'Atlas'}</p>
-                    <div className={message.role === 'user' ? 'rounded-2xl rounded-br-sm bg-primary px-4 py-3 text-sm leading-relaxed text-primary-foreground' : 'rounded-2xl rounded-bl-sm border border-border bg-card px-5 py-4 text-sm leading-relaxed text-card-foreground'}>
+                    <div className={message.role === 'user' ? 'rounded-2xl rounded-br-sm bg-primary px-4 py-3 text-base leading-relaxed text-primary-foreground md:text-sm' : 'rounded-2xl rounded-bl-sm border border-border bg-card px-4 py-3 text-base leading-relaxed text-card-foreground md:px-5 md:py-4 md:text-sm'}>
                       {message.type === 'clarification' && message.clarificationData ? (
                         <ClarificationCard data={message.clarificationData} onQuickAnswer={submit} />
                       ) : response ? (
@@ -107,12 +134,12 @@ export default function Home() {
           )}
         </section>
 
-        {conversation.error && <div className="mx-auto mb-3 w-full max-w-3xl rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive" role="alert">{conversation.error}</div>}
+        {conversation.error && <div className="mx-4 mt-2 shrink-0 rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-2 text-sm text-destructive md:mx-auto md:w-full md:max-w-3xl" role="alert">{conversation.error}</div>}
 
-        <div className="sticky bottom-0 mx-auto w-full max-w-3xl border-t border-border/70 bg-background/95 py-4 backdrop-blur">
-          <div className="relative">
+        <div className="z-20 w-full shrink-0 border-t border-border/70 bg-background/95 px-3 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2 backdrop-blur md:mx-auto md:max-w-3xl md:px-0 md:pb-5 md:pt-4">
+          <div className="relative w-full md:mx-auto md:max-w-3xl">
             <label htmlFor="atlas-question" className="sr-only">Atlas'a mesaj yaz</label>
-            <textarea id="atlas-question" ref={textareaRef} value={question} onChange={(event) => setQuestion(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); submit(); } }} placeholder={PLACEHOLDERS[placeholderIndex]} disabled={conversation.isThinking} rows={3} className="w-full resize-none rounded-2xl border-2 border-border bg-card/90 px-5 py-4 pr-16 text-sm leading-relaxed text-foreground placeholder:text-muted-foreground/50 focus:border-primary focus:outline-none disabled:opacity-60" data-testid="input-question" />
+            <textarea id="atlas-question" ref={textareaRef} value={question} onChange={(event) => setQuestion(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); submit(); } }} placeholder={PLACEHOLDERS[placeholderIndex]} disabled={conversation.isThinking} rows={2} className="max-h-32 min-h-16 w-full resize-none rounded-2xl border-2 border-border bg-card/90 px-4 py-3 pr-14 text-base leading-relaxed text-foreground placeholder:text-muted-foreground/60 focus:border-primary focus:outline-none disabled:opacity-60 md:min-h-14 md:px-5 md:text-sm" data-testid="input-question" />
             <button type="button" onClick={() => submit()} disabled={!question.trim() || conversation.isThinking} aria-label="Mesajı gönder" className="absolute bottom-3 right-3 flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-primary-foreground disabled:cursor-not-allowed disabled:opacity-40" data-testid="button-submit"><Send className="h-4 w-4" aria-hidden="true" /></button>
           </div>
           {intentPreview && <div className="mt-2 px-1 text-right text-xs text-muted-foreground/60">{INTENT_LABELS[intentPreview.intent]}</div>}

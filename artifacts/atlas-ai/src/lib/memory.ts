@@ -12,21 +12,30 @@ export interface UserMemory {
   location?: string;
   occupation?: string;
   goals: string[];
-  preferences: Record<string, string>;   // key → value, e.g. "phone_os" → "ios"
-  recentTopics: string[];                 // last 5 topics
-  trackedProducts: string[];              // products the user follows
-  opportunitySignals: string[];           // price / review / alternate alerts
-  behavioralPatterns: string[];           // shadow-mode observations
+  preferences: Record<string, string>;
+  excludedBrands: string[];
+  preferredBrands: string[];
+  decisionCriteria: string[];
+  recentTopics: string[];
+  trackedProducts: string[];
+  opportunitySignals: string[];
+  behavioralPatterns: string[];
   permissionGranted: boolean;
   lastUpdated: string;
 }
 
 const STORAGE_KEY = 'atlas_memory_v1';
 const MAX_RECENT_TOPICS = 5;
+const MAX_EXCLUDED_BRANDS = 8;
+const MAX_PREFERRED_BRANDS = 8;
+const MAX_DECISION_CRITERIA = 8;
 
 const DEFAULT_MEMORY: UserMemory = {
   goals: [],
   preferences: {},
+  excludedBrands: [],
+  preferredBrands: [],
+  decisionCriteria: [],
   recentTopics: [],
   trackedProducts: [],
   opportunitySignals: [],
@@ -56,6 +65,9 @@ export function updateMemory(updates: Partial<UserMemory>): UserMemory {
     trackedProducts: updates.trackedProducts ?? current.trackedProducts,
     opportunitySignals: updates.opportunitySignals ?? current.opportunitySignals,
     behavioralPatterns: updates.behavioralPatterns ?? current.behavioralPatterns,
+    preferredBrands: updates.preferredBrands ?? current.preferredBrands,
+    decisionCriteria: updates.decisionCriteria ?? current.decisionCriteria,
+    excludedBrands: updates.excludedBrands ?? current.excludedBrands,
     lastUpdated: new Date().toISOString(),
   };
   try {
@@ -135,12 +147,36 @@ export function extractAndSave(facts: {
 }
 
 export interface BackendMemoryCandidate {
-  key: 'budgetTRY' | 'preference' | 'useCase';
+  key: 'budgetTRY' | 'preference' | 'useCase' | 'exclusion' | 'preferredBrand' | 'decisionCriterion';
   value: string | number;
   reason: string;
+  learning?: string;
+  confidence?: number;
+  scope?: 'user';
+  source?: 'explicit_feedback' | 'user_correction';
+  domain?: string;
+  category?: string;
 }
 
 const MAX_MEMORY_VALUE_LENGTH = 120;
+
+function normalizeBrand(brand: string): string {
+  return brand.toLocaleLowerCase('tr-TR').replace(/[^a-z0-9]+/g, ' ').trim().replace(/\s+/g, ' ');
+}
+
+function normalizeToken(token: string): string {
+  return token.toLocaleLowerCase('tr-TR').replace(/[^a-zçğıöşü0-9]+/g, '').trim();
+}
+
+function displayBrand(brand: string): string {
+  const normalized = brand.toLocaleLowerCase('tr-TR');
+  if (normalized.length <= 3) return normalized.toUpperCase();
+  return normalized.charAt(0).toLocaleUpperCase('tr-TR') + normalized.slice(1);
+}
+
+function isSensitive(value: string): boolean {
+  return /password|parola|şifre|token|secret|api.?key|kart numarası/i.test(value);
+}
 
 /** Applies only the backend's allow-listed, non-sensitive memory fields. */
 export function applyMemoryCandidates(candidates: BackendMemoryCandidate[]): UserMemory {
@@ -149,6 +185,9 @@ export function applyMemoryCandidates(candidates: BackendMemoryCandidate[]): Use
 
   const updates: Partial<UserMemory> = {};
   const preferences = { ...memory.preferences };
+  let excludedBrands = [...memory.excludedBrands];
+  let preferredBrands = [...memory.preferredBrands] as string[];
+  let decisionCriteria = [...memory.decisionCriteria] as string[];
 
   for (const candidate of candidates) {
     if (!candidate || typeof candidate.reason !== 'string') continue;
@@ -158,12 +197,56 @@ export function applyMemoryCandidates(candidates: BackendMemoryCandidate[]): Use
       continue;
     }
 
+    if (candidate.key === 'exclusion' && typeof candidate.value === 'string') {
+      const brand = normalizeBrand(candidate.value);
+      if (!brand || isSensitive(brand)) continue;
+      const conf = candidate.confidence ?? 0.95;
+      if (conf === 0) {
+        excludedBrands = excludedBrands.filter((item) => item !== brand);
+      } else if (conf >= 0.6 && !excludedBrands.includes(brand)) {
+        excludedBrands = [...excludedBrands, brand];
+        // A brand that is now excluded cannot be a preference.
+        preferredBrands = preferredBrands.filter((item) => item !== brand);
+      }
+      continue;
+    }
+
+    if (candidate.key === 'preferredBrand' && typeof candidate.value === 'string') {
+      const brand = normalizeBrand(candidate.value);
+      if (!brand || isSensitive(brand)) continue;
+      const conf = candidate.confidence ?? 0.85;
+      if (conf === 0) {
+        preferredBrands = preferredBrands.filter((item) => item !== brand);
+      } else if (conf >= 0.6) {
+        preferredBrands = [...new Set([...preferredBrands, brand])].slice(0, MAX_PREFERRED_BRANDS);
+        // Bir markayı tercih etmek, daha önce dışlanmışsa dışlamayı kaldırır.
+        excludedBrands = excludedBrands.filter((item) => item !== brand);
+      }
+      continue;
+    }
+
+    if (candidate.key === 'decisionCriterion' && typeof candidate.value === 'string') {
+      const criterion = normalizeToken(candidate.value);
+      if (!criterion || isSensitive(criterion)) continue;
+      const conf = candidate.confidence ?? 0.70;
+      if (conf === 0) {
+        decisionCriteria = decisionCriteria.filter((item) => normalizeToken(item) !== criterion);
+      } else if (conf >= 0.6) {
+        decisionCriteria = [...new Set([...decisionCriteria, criterion])].slice(0, MAX_DECISION_CRITERIA);
+      }
+      continue;
+    }
+
     if ((candidate.key === 'preference' || candidate.key === 'useCase') && typeof candidate.value === 'string') {
       const value = candidate.value.trim().slice(0, MAX_MEMORY_VALUE_LENGTH);
-      if (!value || /password|parola|şifre|token|secret|api.?key|kart numarası/i.test(value)) continue;
+      if (!value || isSensitive(value)) continue;
       preferences[candidate.key === 'preference' ? 'preference' : 'useCase'] = value;
     }
   }
+
+  if (excludedBrands.join('|') !== memory.excludedBrands.join('|')) updates.excludedBrands = excludedBrands;
+  if (preferredBrands.join('|') !== memory.preferredBrands.join('|')) updates.preferredBrands = preferredBrands;
+  if (decisionCriteria.join('|') !== memory.decisionCriteria.join('|')) updates.decisionCriteria = decisionCriteria;
 
   if (Object.keys(preferences).length !== Object.keys(memory.preferences).length ||
       Object.entries(preferences).some(([key, value]) => memory.preferences[key] !== value)) {
@@ -180,6 +263,9 @@ export function memorySnapshot(mem: UserMemory): string[] {
   if (mem.location) lines.push(`Konum: ${mem.location}`);
   if (mem.occupation) lines.push(`Meslek: ${mem.occupation}`);
   if (Object.keys(mem.preferences).length > 0) lines.push(`Tercihler: ${Object.values(mem.preferences).join(', ')}`);
+  if (mem.preferredBrands.length > 0) lines.push(`Tercih edilen markalar: ${mem.preferredBrands.map(displayBrand).join(', ')}`);
+  if (mem.decisionCriteria.length > 0) lines.push(`Karar kriterleri: ${mem.decisionCriteria.map(displayBrand).join(', ')}`);
+  if (mem.excludedBrands.length > 0) lines.push(`Hariç: ${mem.excludedBrands.map(displayBrand).join(', ')}`);
   if (mem.recentTopics.length > 0) lines.push(`Son konular: ${mem.recentTopics.join(', ')}`);
   if (mem.trackedProducts.length > 0) lines.push(`Takip edilen ürünler: ${mem.trackedProducts.join(', ')}`);
   if (mem.opportunitySignals.length > 0) lines.push(`Fırsat sinyalleri: ${mem.opportunitySignals.join(', ')}`);

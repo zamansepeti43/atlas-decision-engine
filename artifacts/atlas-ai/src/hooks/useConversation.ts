@@ -15,6 +15,8 @@ import {
   type UserMemory,
 } from '@/lib/memory';
 import { clearConversation, loadConversation, saveConversation } from '@/lib/conversation-storage';
+import { handleAssistantAction } from '@/lib/assistant-actions';
+import { runIzciCheck } from '@/lib/assistant-store';
 
 // ─── State ────────────────────────────────────────────────────────────────────
 
@@ -68,6 +70,10 @@ export function useConversation() {
     memoryRef.current = memory;
   }, [memory]);
 
+  useEffect(() => {
+    runIzciCheck();
+  }, []);
+
   /**
    * Send any user message (first question OR clarification answer).
    * Automatically determines context and routes to the engine.
@@ -96,6 +102,25 @@ export function useConversation() {
       }));
 
       try {
+        const assistantAction = handleAssistantAction(trimmed);
+        if (assistantAction.handled) {
+          const atlasMsg: ConversationMessage = {
+            id: uid(),
+            role: 'atlas',
+            type: 'text',
+            content: assistantAction.reply ?? 'İşlem tamamlandı.',
+            timestamp: new Date(),
+          };
+          setState((prev) => ({
+            ...prev,
+            messages: [...prev.messages, atlasMsg],
+            isThinking: false,
+            error: null,
+            isAnsweringClarification: false,
+          }));
+          return;
+        }
+
         const history = buildConversationHistoryFromMessages(current.messages);
 
         const result = await processUserTurn(

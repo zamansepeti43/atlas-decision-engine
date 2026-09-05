@@ -55,6 +55,8 @@ export interface ProductMetadata {
   features: string[];
   availability?: 'in_stock' | 'out_of_stock';
   retrievedAt: string;
+  priceVerification?: 'merchant_page';
+  priceVerifiedAt?: string;
   score?: number;
   scoreComponents?: {
     budgetFit: number;
@@ -84,9 +86,13 @@ export interface ComparisonMetadata {
 }
 
 export interface MemoryCandidate {
-  key: 'budgetTRY' | 'preference' | 'useCase';
+  key: 'budgetTRY' | 'preference' | 'useCase' | 'exclusion';
   value: string | number;
   reason: string;
+  learning?: string;
+  confidence?: number;
+  scope?: 'user';
+  source?: 'explicit_feedback';
 }
 
 export interface ResearchMetadata {
@@ -97,6 +103,7 @@ export interface ResearchMetadata {
 
 export interface AtlasResponseMetadata {
   operation: AtlasOperation;
+  domain?: string;
   sources: WebSourceMetadata[];
   products: ProductMetadata[];
   comparison?: ComparisonMetadata;
@@ -156,7 +163,17 @@ async function askBackend(
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message: question, history, memorySummary, priorProducts }),
     });
-    const data = (await response.json()) as BackendChatApiResponse;
+
+    let data: BackendChatApiResponse;
+    try {
+      data = (await response.json()) as BackendChatApiResponse;
+    } catch (parseError) {
+      const preview = await response.text().catch(() => '').then((text) => text.slice(0, 200));
+      console.error('[Atlas AI] Chat API returned a non-JSON response', { apiUrl, status: response.status, bodyPreview: preview });
+      throw new AtlasUserSafeError(
+        `Atlas hizmetine şu anda bağlanılamıyor (sunucu ${response.status} ${response.statusText || 'hata'} döndürdü). Lütfen daha sonra tekrar deneyin.`,
+      );
+    }
 
     if (!response.ok || !data.success) {
       console.error('[Atlas AI] Chat API rejected the request', {
@@ -174,10 +191,14 @@ async function askBackend(
     return data;
   } catch (error) {
     if (error instanceof AtlasUserSafeError) throw error;
-    console.error('[Atlas AI] Chat API request failed', error);
-    throw new AtlasUserSafeError('Atlas hizmetine şu anda ulaşılamıyor. Lütfen daha sonra tekrar deneyin.');
+    const detail = error instanceof Error ? error.message : String(error);
+    console.error('[Atlas AI] Chat API request failed', { apiUrl, error: detail });
+    throw new AtlasUserSafeError(
+      `Atlas hizmetine şu anda bağlanılamıyor. Lütfen daha sonra tekrar deneyin. (detay: ${detail})`,
+    );
   }
 }
+
 // ─── Public types ─────────────────────────────────────────────────────────────
 
 export type IntentType =
@@ -277,7 +298,7 @@ const INTENT_SIGNALS: Record<IntentType, string[]> = {
     'almalıyım', 'seçmeliyim', 'hangisi', 'mi yoksa', 'karar', 'öneri ver',
     'tavsiye', 'tercih', 'karşılaştır', 'farkı nedir', 'hangisini', 'ne alayım',
     'bütçem var', 'tl bütçe', 'hangi', 'öneriyor musun', 'seçsem', 'alsam',
-    'yapmalıyım', 'gitmeli miyim', 'denemeliyim',
+    'yapmalıyım', 'gitmeli miyim', 'denemeliyim', 'arıyorum', 'bakıyorum',
   ],
   writing: [
     'yaz', 'oluştur', 'hazırla', 'taslak', 'mektup', 'e-posta', 'eposta',
@@ -920,6 +941,7 @@ export async function processQuery(
     },
     metadata: {
       operation: response.operation,
+      domain: response.domain,
       sources: response.sources,
       products: response.products,
       decision: response.decision,

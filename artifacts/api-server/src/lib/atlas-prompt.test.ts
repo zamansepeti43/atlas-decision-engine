@@ -64,3 +64,16 @@ test('buildAtlasPrompt discloses unavailable research to synthesis', () => {
   assert.match(messages.at(-2)?.content ?? '', /unavailable/);
   assert.match(messages.at(-2)?.content ?? '', /TAVILY_API_KEY/);
 });
+
+test('buildAtlasPrompt lists explicitly excluded brands as a constraint', () => {
+  const messages = buildAtlasPrompt({
+    message: 'Apple hariç telefon öner.',
+    plan: planRequest('Apple hariç telefon öner.'),
+    sources: [],
+    products: [],
+    research: noResearch,
+  });
+
+  const toolContent = messages.at(-2)?.content ?? '';
+  assert.match(toolContent, /Hariç tutulan markalar: Apple/);
+});

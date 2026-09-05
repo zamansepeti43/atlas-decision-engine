@@ -9,6 +9,24 @@ export const ATLAS_INTENTS = [
 ] as const;
 
 export type AtlasIntent = (typeof ATLAS_INTENTS)[number];
+
+/**
+ * Alan (domain), kullanıcının kararının hangi yaşam alanında olduğunu belirtir.
+ * Niyet "ne yapılmak istendiğini", alan "hangi bağlamda" yapıldığını söyler.
+ */
+export const ATLAS_DOMAINS = [
+  "teknoloji",
+  "otomobil",
+  "otomobil-parca",
+  "emlak",
+  "seyahat",
+  "finans",
+  "kariyer",
+  "egitim",
+  "genel",
+] as const;
+
+export type AtlasDomain = (typeof ATLAS_DOMAINS)[number];
 export type AtlasOperation = "respond" | "web_research" | "product_search" | "price_comparison";
 
 export interface ChatHistoryEntry {
@@ -17,10 +35,35 @@ export interface ChatHistoryEntry {
 }
 
 export interface RequestContext {
+  domain: AtlasDomain;
   category?: string;
   budgetTRY?: number;
   preferences: string[];
   useCase?: string;
+   /** Kullanıcının açıkça hariç tuttuğu markalar (normalize, küçük harf). */
+  excludedBrands: string[];
+  /** Memory özetinden okunan, kullanıcının tercih ettiği markalar (normalize). Boş ise varsayılan davranış. */
+  preferredBrands?: string[];
+  /** Aynı mesajda açıkça dışlanan markalar ve güven skorları. */
+  newExclusions?: BrandExclusion[];
+  /** Memory'de bulunup bu mesajda açıkça geri alınan markalar. */
+  removedExclusions?: string[];
+  /** Marka (BMW, Samsung, Nike...) */
+  brand?: string;
+  /** Otomobil/ürün modeli (3 Serisi, Galaxy A16...) */
+  model?: string;
+  /** Otomobil parça adı (fren balatası, filtre...) */
+  part?: string;
+  /** Emlak: şehir/bölge */
+  location?: string;
+  /** Emlak: satılık | kiralık */
+  propertyIntent?: "satilik" | "kiralik";
+  /** Seyahat: destinasyon */
+  destination?: string;
+  /** Finans: risk toleransı */
+  risk?: "dusuk" | "orta" | "yuksek";
+  /** Eğitim/kariyer/seyahat için zaman çerçevesi */
+  timeline?: string;
 }
 
 export interface RequestPlan {
@@ -30,6 +73,13 @@ export interface RequestPlan {
   query?: string;
   backfillQuery?: string;
   context: RequestContext;
+}
+
+/** Karar için en kritik eksik bilgi ve bunun araştırmayı engelleyip engellemediği. */
+export interface FollowUpNeed {
+  question: string;
+  /** true ise bu bilgi olmadan araştırma/karar verilemez. */
+  blocking: boolean;
 }
 
 export interface WebSource {
@@ -57,6 +107,8 @@ export interface ProductResult {
   features: string[];
   availability?: "in_stock" | "out_of_stock";
   retrievedAt: string;
+  priceVerification?: "merchant_page";
+  priceVerifiedAt?: string;
 }
 
 export interface ScoreComponents {
@@ -91,9 +143,24 @@ export interface ComparisonResult {
 }
 
 export interface MemoryCandidate {
-  key: "budgetTRY" | "preference" | "useCase";
+  key: "budgetTRY" | "preference" | "useCase" | "exclusion" | "preferredBrand" | "decisionCriterion";
   value: string | number;
   reason: string;
+  /** Öğrenilen, insan-okunur ifade (yalnızca exclusion için üretilir). */
+  learning?: string;
+  /** 0–1 arası güven; bu sistemde üst sınır 0.95. 0 = hafızadan kaldırma sinyali. */
+  confidence?: number;
+  /** Öğrenmenin kapsamı; şimdilik yalnızca "user". */
+  scope?: "user";
+  /** Bilginin kaynağı; şimdilik yalnızca "explicit_feedback". */
+  source?: "explicit_feedback";
+}
+
+/** Kullanıcının açıkça dışladığı bir marka ve buna ilişkin güven. */
+export interface BrandExclusion {
+  brand: string;
+  confidence: number;
+  phrase: string;
 }
 
 export interface ResearchStatus {
@@ -110,6 +177,7 @@ export interface AtlasChatResponse {
   message: string;
   reply: string;
   intent: AtlasIntent;
+  domain: AtlasDomain;
   operation: AtlasOperation;
   sources: WebSource[];
   products: RankedProduct[];
@@ -128,6 +196,7 @@ export interface AtlasChatErrorResponse {
   error: string;
   message: string;
   intent?: AtlasIntent;
+  domain?: AtlasDomain;
   sources: WebSource[];
   products: RankedProduct[];
   confidence: number;

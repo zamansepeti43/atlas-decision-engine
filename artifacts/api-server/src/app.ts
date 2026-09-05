@@ -38,6 +38,8 @@ const allowedOrigins = new Set([
   "https://atlas-decision-engine-o509dknoh-tanahmetat-4997s-projects.vercel.app",
   "http://localhost:5173",
   "http://127.0.0.1:5173",
+  "http://localhost:5175",
+  "http://127.0.0.1:5175",
   ...configuredOrigins,
 ]);
 
@@ -60,5 +62,18 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 app.use("/api", router);
+
+app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  const isCorsRejection = err instanceof Error && err.message.startsWith("Origin not allowed by CORS");
+  logger.error({ err }, isCorsRejection ? "CORS rejection" : "Unhandled request error");
+  if (res.headersSent) return;
+  res.status(isCorsRejection ? 403 : 500).json({
+    success: false,
+    error: isCorsRejection ? "Origin not allowed by CORS" : "Beklenmeyen bir sunucu hatası oluştu.",
+    message: isCorsRejection
+      ? "Bu kaynağa bu adresten erişime izin verilmiyor."
+      : "İsteğiniz işlenirken bir sorun oluştu. Lütfen tekrar deneyin.",
+  });
+});
 
 export default app;

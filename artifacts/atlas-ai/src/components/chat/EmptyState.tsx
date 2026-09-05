@@ -24,16 +24,16 @@ const item = {
 
 export function EmptyState({ onSuggestion }: Props) {
   return (
-    <div className="h-full flex flex-col items-center justify-center px-4 py-12">
+    <div className="flex min-h-full w-full flex-col items-center justify-start py-5 md:justify-center md:px-4 md:py-10">
       <motion.div
         variants={container}
         initial="hidden"
         animate="visible"
-        className="w-full max-w-2xl text-center space-y-10"
+        className="w-full space-y-6 text-center md:max-w-2xl md:space-y-8"
       >
         {/* Logo */}
         <motion.div variants={item}>
-          <h1 className="text-5xl md:text-7xl font-serif font-bold mb-3">
+          <h1 className="mb-2 font-serif text-[2.625rem] font-bold leading-none md:mb-3 md:text-6xl">
             <span className="text-foreground">Atlas</span>{' '}
             <span
               className="text-primary"
@@ -42,17 +42,17 @@ export function EmptyState({ onSuggestion }: Props) {
               AI
             </span>
           </h1>
-          <p className="text-base md:text-lg text-muted-foreground font-light tracking-wide">
+          <p className="text-base font-light text-muted-foreground md:tracking-wide">
             Her karar için akıllı bir danışman
           </p>
         </motion.div>
 
         {/* Capability chips */}
-        <motion.div variants={item} className="flex flex-wrap items-center justify-center gap-2">
+        <motion.div variants={item} className="hidden flex-wrap items-center justify-center gap-2 sm:flex">
           {['Karar Analizi', 'Öğrenme', 'Planlama', 'Araştırma', 'Yazı', 'Problem Çözümü'].map((cap) => (
             <span
               key={cap}
-              className="text-xs px-3 py-1.5 rounded-full border border-border text-muted-foreground/60"
+              className="rounded-full border border-border px-3 py-1.5 text-xs text-muted-foreground/60"
             >
               {cap}
             </span>
@@ -60,7 +60,7 @@ export function EmptyState({ onSuggestion }: Props) {
         </motion.div>
 
         {/* Suggestions */}
-        <motion.div variants={item} className="grid md:grid-cols-2 gap-3">
+        <motion.div variants={item} className="grid w-full gap-3 md:grid-cols-2">
           {SUGGESTIONS.map((suggestion) => {
             const Icon = suggestion.icon;
             return (
@@ -69,16 +69,16 @@ export function EmptyState({ onSuggestion }: Props) {
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
               onClick={() => onSuggestion(suggestion.text)}
-              className="text-left bg-card border border-border hover:border-primary/40 rounded-2xl px-5 py-4 transition-all duration-200 group"
+              className="group min-h-24 w-full rounded-xl border border-border bg-card px-4 py-4 text-left transition-all duration-200 hover:border-primary/40 md:min-h-0 md:rounded-2xl md:px-5"
               data-testid={`suggestion-${suggestion.label}`}
             >
-              <div className="flex items-center gap-2 mb-2">
-                <Icon className="h-4 w-4 text-primary" aria-hidden="true" />
-                <span className="text-xs font-semibold uppercase tracking-widest text-primary">
+              <div className="mb-2 flex items-center gap-2">
+                <Icon className="h-5 w-5 text-primary md:h-4 md:w-4" aria-hidden="true" />
+                <span className="text-sm font-semibold uppercase tracking-widest text-primary md:text-xs">
                   {suggestion.label}
                 </span>
               </div>
-              <p className="text-sm text-muted-foreground group-hover:text-foreground transition-colors leading-relaxed">
+              <p className="text-[15px] leading-relaxed text-muted-foreground transition-colors group-hover:text-foreground md:text-sm">
                 {suggestion.text}
               </p>
             </motion.button>

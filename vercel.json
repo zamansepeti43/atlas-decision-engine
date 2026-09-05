@@ -27,6 +27,30 @@
       "dest": "/artifacts/atlas-ai/favicon.svg"
     },
     {
+      "src": "/favicon.ico",
+      "dest": "/artifacts/atlas-ai/favicon.ico"
+    },
+    {
+      "src": "/favicon-32x32.png",
+      "dest": "/artifacts/atlas-ai/favicon-32x32.png"
+    },
+    {
+      "src": "/apple-touch-icon.png",
+      "dest": "/artifacts/atlas-ai/apple-touch-icon.png"
+    },
+    {
+      "src": "/icon-192.png",
+      "dest": "/artifacts/atlas-ai/icon-192.png"
+    },
+    {
+      "src": "/icon-512.png",
+      "dest": "/artifacts/atlas-ai/icon-512.png"
+    },
+    {
+      "src": "/manifest.webmanifest",
+      "dest": "/artifacts/atlas-ai/manifest.webmanifest"
+    },
+    {
       "src": "/robots.txt",
       "dest": "/artifacts/atlas-ai/robots.txt"
     },
