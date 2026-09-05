@@ -1,4 +1,4 @@
-import express from "express";
+import express, { type NextFunction, type Request, type Response } from "express";
 import cors from "cors";
 import pinoHttp from "pino-http";
 
@@ -63,7 +63,7 @@ app.use(express.urlencoded({ extended: true }));
 
 app.use("/api", router);
 
-app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
   const isCorsRejection = err instanceof Error && err.message.startsWith("Origin not allowed by CORS");
   logger.error({ err }, isCorsRejection ? "CORS rejection" : "Unhandled request error");
   if (res.headersSent) return;
