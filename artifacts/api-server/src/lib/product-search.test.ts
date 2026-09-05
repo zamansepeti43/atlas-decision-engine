@@ -164,3 +164,25 @@ test("explicit snippet prices remain labeled snapshots when merchant verificatio
   assert.equal(result.products[0]?.priceTRY, 2_250);
   assert.equal(result.products[0]?.priceVerification, "search_snapshot");
 });
+
+test("product search backfills when primary listing pages contain no prices", async () => {
+  let attempts = 0;
+  const result = await searchProducts(
+    "Puma Anzarun ayakkabı en uygun",
+    "Puma Anzarun satış fiyatı TL",
+    async (query) => {
+      attempts += 1;
+      return {
+        sources: query.includes("satış fiyatı")
+          ? [source("Puma Anzarun Lite Spor Ayakkabı", "https://priced.example/urun/puma-anzarun", "Sepette 2.250 TL")]
+          : Array.from({ length: 5 }, (_, index) => source(`Puma Anzarun Lite Spor Ayakkabı ${index}`, `https://shop.example/urun/puma-anzarun-${index}`, "Ürün detayları")),
+        research: { requested: true, status: "completed" as const, provider: "tavily" as const, retrievedAt },
+      };
+    },
+    { brand: "puma", category: "ayakkabı" },
+    async () => null,
+  );
+
+  assert.equal(attempts, 2);
+  assert.equal(result.products[0]?.priceTRY, 2_250);
+});

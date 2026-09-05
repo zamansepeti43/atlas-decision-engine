@@ -60,7 +60,8 @@ export async function searchProducts(
     : normalizeProductResults(items, requiredBrand, requiredIdentifiers);
   let candidates = applyFilters(normalize(sources));
 
-  if (primary.research.status === "completed" && candidates.length < TARGET_PRODUCT_COUNT && backfillQuery) {
+  const pricedCandidateCount = candidates.filter((candidate) => candidate.priceTRY !== undefined).length;
+  if (primary.research.status === "completed" && pricedCandidateCount < TARGET_PRODUCT_COUNT && backfillQuery) {
     const backfill = await searcher(backfillQuery, { includeDomains: TURKISH_MERCHANT_DOMAINS });
     if (backfill.research.status === "completed") {
       sources = mergeSources(sources, backfill.sources);
