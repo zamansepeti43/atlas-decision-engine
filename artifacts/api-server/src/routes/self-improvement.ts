@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Router, type Request, type Response } from "express";
 import { z } from "zod";
 
 import {
@@ -7,6 +7,12 @@ import {
 } from "../lib/self-improvement-planner.js";
 
 const router = Router();
+
+type VercelRequest = Request & { body: unknown };
+type VercelResponse = Response & {
+  status(code: number): VercelResponse;
+  json(body: unknown): VercelResponse;
+};
 
 const planSchema = z.object({
   title: z.string().min(1).max(160),
@@ -18,7 +24,7 @@ const planSchema = z.object({
   targetFiles: z.array(z.string().min(1).max(300)).max(50).optional(),
 });
 
-router.post("/self-improvement/plan", (req, res) => {
+router.post("/self-improvement/plan", (req: VercelRequest, res: VercelResponse) => {
   const parsed = planSchema.safeParse(req.body);
 
   if (!parsed.success) {

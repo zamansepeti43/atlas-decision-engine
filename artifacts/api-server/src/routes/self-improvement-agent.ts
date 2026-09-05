@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Router, type Request, type Response } from "express";
 import { z } from "zod";
 
 import { buildImprovementPlan } from "../lib/self-improvement-planner.js";
@@ -6,6 +6,12 @@ import { buildCodingAgentContext } from "../lib/self-improvement-agent.js";
 import { SelfImprovementGuard } from "../lib/self-improvement-orchestrator.js";
 
 const router = Router();
+
+type VercelRequest = Request & { body: unknown };
+type VercelResponse = Response & {
+  status(code: number): VercelResponse;
+  json(body: unknown): VercelResponse;
+};
 
 const schema = z.object({
   title: z.string().min(1).max(160),
@@ -16,7 +22,7 @@ const schema = z.object({
   branch: z.string().regex(/^atlas\/improve\/[a-z0-9-]+$/).optional(),
 });
 
-router.post("/self-improvement/agent-job", (req, res) => {
+router.post("/self-improvement/agent-job", (req: VercelRequest, res: VercelResponse) => {
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ ok: false, error: "Invalid coding-agent job input", details: parsed.error.flatten() });

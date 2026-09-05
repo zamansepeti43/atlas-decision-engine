@@ -1,4 +1,4 @@
-import express, { type NextFunction, type Request, type Response } from "express";
+import express, { type ErrorRequestHandler } from "express";
 import cors from "cors";
 import pinoHttp from "pino-http";
 
@@ -63,7 +63,13 @@ app.use(express.urlencoded({ extended: true }));
 
 app.use("/api", router);
 
-app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
+interface ErrorResponse {
+  headersSent: boolean;
+  status(code: number): ErrorResponse;
+  json(body: unknown): unknown;
+}
+
+const errorHandler = (err: unknown, _req: unknown, res: ErrorResponse, _next: unknown) => {
   const isCorsRejection = err instanceof Error && err.message.startsWith("Origin not allowed by CORS");
   logger.error({ err }, isCorsRejection ? "CORS rejection" : "Unhandled request error");
   if (res.headersSent) return;
@@ -74,6 +80,8 @@ app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
       ? "Bu kaynağa bu adresten erişime izin verilmiyor."
       : "İsteğiniz işlenirken bir sorun oluştu. Lütfen tekrar deneyin.",
   });
-});
+};
+
+app.use(errorHandler as ErrorRequestHandler);
 
 export default app;

@@ -35,6 +35,21 @@ export function extractMerchantPagePrice(html: string): number | undefined {
 
 export type ProductPriceVerifier = (product: ProductCandidate) => Promise<ProductResult | null>;
 
+interface MerchantPageResponse {
+  ok: boolean;
+  headers: { get(name: string): string | null };
+  text(): Promise<string>;
+}
+
+type MerchantFetch = (
+  url: string,
+  options: {
+    headers: Record<string, string>;
+    redirect: "follow";
+    signal: AbortSignal;
+  },
+) => Promise<MerchantPageResponse>;
+
 export function canonicalizeProductUrl(value: string): string {
   const url = new URL(value);
   const amazonAsin = url.hostname.endsWith("amazon.com.tr")
@@ -50,7 +65,7 @@ export function canonicalizeProductUrl(value: string): string {
 
 export async function verifyProductPrice(
   product: ProductCandidate,
-  fetchImpl: typeof fetch = fetch,
+  fetchImpl: MerchantFetch = fetch as unknown as MerchantFetch,
 ): Promise<ProductResult | null> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 7_000);
