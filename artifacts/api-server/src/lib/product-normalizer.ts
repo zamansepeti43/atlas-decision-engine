@@ -13,7 +13,7 @@ const LISTING_EVIDENCE = /(sepete ekle|satın al|stokta|stok mevcut|ürün kodu|
 const SALE_PRICE_PREFIX = /(satış fiyatı|indirimli fiyat|sepette|fiyatı?\s*:|şimdi\s+sadece|bugüne özel|tek seferlik satın alma|priceAmount|displayPrice)[^\d]{0,20}$/i;
 const SALE_PRICE_SUFFIX = /^\s*(satış fiyatı|indirimli fiyat)/i;
 const RANGE_OR_BUDGET_CONTEXT = /(\baltı\b|altında|\büstü\b|üzerinde|bandında|aralığında|bütçe|\d[\d.,]*\s*(?:TL|TRY|₺)?\s*[-–—]\s*\d)/i;
-const NON_SALE_AMOUNT_CONTEXT = /(taksit|\d+\s*x\s*\d|kupon|indirim kodu|kargo|puan|kazanç|ek hizmet|ek garanti|premium|hediye)/i;
+const NON_SALE_AMOUNT_CONTEXT = /(taksit|\d+\s*x\s*\d|kupon|indirim kodu|kargo|puan|kazanç|avantaj|ek hizmet|ek garanti|premium|hediye)/i;
 const KNOWN_BRANDS = ["adidas", "nike", "puma", "skechers", "new balance", "asics", "reebok", "under armour", "vans", "hoka", "apple", "samsung", "xiaomi", "lenovo", "dell", "asus", "acer", "sony", "philips"];
 const FEATURE_TERMS = ["hafif", "rahat", "konfor", "koşu", "spor", "günlük", "oyun", "nefes alabilir", "su geçirmez", "dayanıklı"];
 const PRICE_PATTERN = /(?:TRY|TL|₺)\s*(\d{1,3}(?:[.,]\d{3})+(?:[.,]\d{2})?|\d{3,7}(?:[.,]\d{2})?)|(\d{1,3}(?:[.,]\d{3})+(?:[.,]\d{2})?|\d{3,7}(?:[.,]\d{2})?)\s*(?:TRY|TL|₺)/gi;
@@ -83,15 +83,17 @@ function parseNumber(raw: string): number | undefined {
   return Number.isFinite(price) && price > 0 ? price : undefined;
 }
 
-function parseSalePrice(text: string): number | undefined {
-  for (const match of text.matchAll(PRICE_PATTERN)) {
+function parseSalePrice(text: string, listingUrl: boolean): number | undefined {
+  const matches = [...text.matchAll(PRICE_PATTERN)];
+  for (const match of matches) {
     const raw = match[1] ?? match[2];
     if (!raw || match.index === undefined) continue;
     const context = text.slice(Math.max(0, match.index - 60), match.index + match[0].length + 60);
     const prefix = text.slice(Math.max(0, match.index - 60), match.index);
     const suffix = text.slice(match.index + match[0].length, match.index + match[0].length + 30);
     if (RANGE_OR_BUDGET_CONTEXT.test(context) || NON_SALE_AMOUNT_CONTEXT.test(context)) continue;
-    if (!SALE_PRICE_PREFIX.test(prefix) && !SALE_PRICE_SUFFIX.test(suffix)) continue;
+    const hasSaleContext = SALE_PRICE_PREFIX.test(prefix) || SALE_PRICE_SUFFIX.test(suffix);
+    if (!hasSaleContext && !(listingUrl && matches.length === 1)) continue;
     const price = parseNumber(raw);
     if (price !== undefined) return price;
   }
@@ -126,7 +128,7 @@ export function normalizeProductCandidates(sources: WebSource[], requiredBrand?:
     if (requiredIdentifiers.some((identifier) => !lowerEvidence.includes(identifier))) return [];
     const listingUrl = LISTING_URL.test(url.pathname);
     if (!listingUrl && !LISTING_EVIDENCE.test(evidence)) return [];
-    const priceTRY = parseSalePrice(evidence);
+    const priceTRY = parseSalePrice(evidence, listingUrl);
     const features = FEATURE_TERMS.filter((term) => lowerEvidence.includes(term));
     const identity = productIdentity(source.title);
     const availability = /stokta yok|stok dışı|tükendi/i.test(evidence)

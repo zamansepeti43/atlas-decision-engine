@@ -84,6 +84,14 @@ test("promotional savings and add-on service fees are never parsed as sale price
   assert.deepEqual(normalizeProductResults(nonSaleAmounts), []);
 });
 
+test("a sole amount on an exact product page can be retained as snapshot evidence", () => {
+  const result = normalizeProductResults([
+    { title: "Puma Anzarun Lite Spor Ayakkabı", url: "https://shop.example/urun/puma-anzarun", snippet: "1.958,26 TL", domain: "shop.example", retrievedAt },
+  ]);
+
+  assert.equal(result[0]?.priceTRY, 1_958.26);
+});
+
 test("ranking excludes brands the user explicitly rejected even if the search let them through", () => {
   const withApple: WebSource[] = [
     { title: "Apple iPhone 16", url: "https://shop.example/product/apple-iphone-16", snippet: "Telefon. Satış fiyatı: 59.999 TL. Stokta.", domain: "shop.example", retrievedAt },
