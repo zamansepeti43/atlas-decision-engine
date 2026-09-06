@@ -29,7 +29,8 @@ test("product search backfills once when the primary result has no grounded list
 
   assert.deepEqual(queries, ["primary", "backfill"]);
   assert.ok(options[0]?.excludeDomains);
-  assert.ok(options[1]?.includeDomains);
+  assert.deepEqual(options[1]?.includeDomains, ["trendyol.com"]);
+  assert.equal(options[1]?.searchDepth, "advanced");
   assert.equal(result.sources.length, 2);
   assert.equal(result.products.length, 1);
   assert.equal(result.products[0].priceTRY, 1_899);

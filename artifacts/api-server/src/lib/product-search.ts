@@ -8,11 +8,7 @@ const NON_LISTING_DOMAINS = [
   "youtube.com", "instagram.com", "facebook.com", "tiktok.com", "twitter.com", "x.com",
   "reddit.com", "onedio.com", "technopat.net", "akakce.com", "cimri.com", "epey.com",
 ];
-const TURKISH_MERCHANT_DOMAINS = [
-  "trendyol.com", "hepsiburada.com", "n11.com", "amazon.com.tr", "boyner.com.tr", "flo.com.tr",
-  "intersport.com.tr", "superstep.com.tr", "sportive.com.tr", "barcin.com", "skechers.com.tr",
-  "adidas.com.tr", "nike.com.tr",
-];
+const PRICE_EVIDENCE_DOMAINS = ["trendyol.com"];
 
 type Searcher = (query: string, options?: WebSearchOptions) => Promise<WebSearchResult>;
 const defaultSearcher: Searcher = (searchQuery, options) => searchWeb(searchQuery, undefined, fetch, options);
@@ -62,7 +58,7 @@ export async function searchProducts(
 
   const pricedCandidateCount = candidates.filter((candidate) => candidate.priceTRY !== undefined).length;
   if (primary.research.status === "completed" && pricedCandidateCount < TARGET_PRODUCT_COUNT && backfillQuery) {
-    const backfill = await searcher(backfillQuery, { includeDomains: TURKISH_MERCHANT_DOMAINS, searchDepth: "advanced" });
+    const backfill = await searcher(backfillQuery, { includeDomains: PRICE_EVIDENCE_DOMAINS, searchDepth: "advanced" });
     if (backfill.research.status === "completed") {
       sources = mergeSources(sources, backfill.sources);
       candidates = applyFilters(normalize(sources));
