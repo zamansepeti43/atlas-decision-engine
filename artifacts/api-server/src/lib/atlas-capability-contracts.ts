@@ -63,10 +63,10 @@ export const ATLAS_CAPABILITY_STATUSES: CapabilityStatus[] = [
     id: "merchant-prices",
     label: "Gerçek zamanlı mağaza fiyatları",
     mode: "provider",
-    ready: Boolean(process.env.TAVILY_API_KEY),
+    ready: true,
     requiresUserConsent: false,
-    description: "On-demand web/merchant search with product normalization and price verification. Multiple Turkish merchant domains can be queried in parallel.",
-    missing: process.env.TAVILY_API_KEY ? undefined : ["TAVILY_API_KEY veya doğrudan merchant adapters"],
+    description: "On-demand web/merchant search uses cloud SearXNG first, then falls back to Tavily only when configured. Product pages are separately verified when possible.",
+    missing: undefined,
   },
   {
     id: "banking",
