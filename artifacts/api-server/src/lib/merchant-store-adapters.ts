@@ -29,7 +29,18 @@ export interface MerchantStoreAdapter {
   lookup(context: StoreAdapterContext): Promise<StoreProductSnapshot[]>;
 }
 
-const SHOK_DOMAINS = ["sokmarket.com.tr"];
+const MARKET_OFFICIAL_DOMAINS: Record<string, string[]> = {
+  migros: ["migros.com.tr"],
+  carrefoursa: ["carrefoursa.com"],
+  carrefour: ["carrefoursa.com"],
+  bim: ["bim.com.tr"],
+  a101: ["a101.com.tr"],
+  sok: ["sokmarket.com.tr"],
+  file: ["file.com.tr"],
+  hakmar: ["hakmar.com.tr"],
+  onur: ["onurmarket.com"],
+  "tarim kredi": ["tkkoop.com.tr"],
+};
 
 function normalizeText(value: string): string {
   return value.toLocaleLowerCase("tr-TR").replace(/ı/g, "i").replace(/ş/g, "s").replace(/ğ/g, "g").replace(/ü/g, "u").replace(/ö/g, "o").replace(/ç/g, "c").replace(/[^a-z0-9]+/g, " ").trim();
@@ -55,83 +66,68 @@ function inferOfficialAvailability(sourceText: string): StoreStockStatus {
 }
 
 function inferPrice(sourceText: string): number | undefined {
-  const matches = sourceText.match(/\b\d{1,4}(?:[.,]\d{2})?\s*(?:₺|TL)\b/gi) ?? [];
-  const prices = matches.map(parsePrice).filter((value): value is number => value !== undefined);
-  return prices[0];
+  const matches = sourceText.match(/\b\d{1,5}(?:[.,]\d{2})?\s*(?:₺|TL|TRY)\b/gi) ?? [];
+  return matches.map(parsePrice).find((value): value is number => value !== undefined);
 }
 
-async function officialShokCatalogLookup(context: StoreAdapterContext): Promise<StoreProductSnapshot[]> {
-  const result = await searchWeb(`${context.product} site:sokmarket.com.tr`, process.env.TAVILY_API_KEY, fetch, {
-    includeDomains: SHOK_DOMAINS,
+function domainsForMarket(name: string): string[] {
+  const normalized = normalizeText(name);
+  const entry = Object.entries(MARKET_OFFICIAL_DOMAINS).find(([key]) => normalized.includes(key));
+  return entry?.[1] ?? [];
+}
+
+async function officialMarketCatalogLookup(context: StoreAdapterContext, merchant: string): Promise<StoreProductSnapshot[]> {
+  const domains = domainsForMarket(context.market.name);
+  if (!domains.length) return [];
+  const result = await searchWeb(`${context.product} fiyat`, process.env.TAVILY_API_KEY, fetch, {
+    includeDomains: domains,
     searchDepth: "basic",
   });
   const checkedAt = new Date().toISOString();
   const query = normalizeText(context.product);
   return result.sources
-    .filter((source) => source.url.includes("sokmarket.com.tr") && source.url.includes("-p-"))
+    .filter((source) => domains.some((domain) => source.url.includes(domain)))
     .slice(0, 5)
     .map((source) => {
       const title = source.title || context.product;
       const text = `${source.title ?? ""} ${source.snippet ?? ""}`;
       return {
-        merchant: "ŞOK",
+        merchant,
         storeName: context.market.name,
         productName: title,
         productUrl: source.url,
         priceTRY: inferPrice(text),
-        stockStatus: inferOfficialAvailability(text),
+        // Branch stock is deliberately not inferred from an official web result.
+        // The official product page is a price source, not proof of this branch's stock.
+        stockStatus: "unknown" as const,
         exactMatch: normalizeText(title).includes(query) || query.includes(normalizeText(title)),
         source: "official_product_page" as const,
         checkedAt,
       };
-    });
+    })
+    .filter((item) => item.priceTRY !== undefined);
 }
 
-async function configuredShokStoreFeed(context: StoreAdapterContext): Promise<StoreProductSnapshot[]> {
-  const endpoint = process.env.ATLAS_SHOK_STORE_API_URL?.trim();
-  if (!endpoint) return [];
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 8000);
-  try {
-    const url = new URL(endpoint);
-    url.searchParams.set("latitude", String(context.location.latitude));
-    url.searchParams.set("longitude", String(context.location.longitude));
-    url.searchParams.set("storeName", context.market.name);
-    url.searchParams.set("product", context.product);
-    const response = await fetch(url, { headers: { Accept: "application/json" }, signal: controller.signal });
-    if (!response.ok) return [];
-    const data = await response.json() as { products?: Array<{ storeId?: string; storeName?: string; productName: string; productUrl?: string; priceTRY?: number; stockStatus?: StoreStockStatus; stockQuantity?: number; exactMatch?: boolean }> };
-    return (data.products ?? []).map((item) => ({
-      merchant: "ŞOK",
-      storeId: item.storeId,
-      storeName: item.storeName ?? context.market.name,
-      productName: item.productName,
-      productUrl: item.productUrl ?? "https://www.sokmarket.com.tr/",
-      priceTRY: item.priceTRY,
-      stockStatus: item.stockStatus ?? "unknown",
-      stockQuantity: item.stockQuantity,
-      exactMatch: item.exactMatch ?? true,
-      source: "official_store_feed" as const,
-      checkedAt: new Date().toISOString(),
-    }));
-  } catch {
-    return [];
-  } finally {
-    clearTimeout(timeout);
-  }
-}
+const supportedMerchants = [
+  { merchant: "Migros", keys: ["migros"] },
+  { merchant: "CarrefourSA", keys: ["carrefoursa", "carrefour"] },
+  { merchant: "BİM", keys: ["bim"] },
+  { merchant: "A101", keys: ["a101"] },
+  { merchant: "ŞOK", keys: ["sok"] },
+  { merchant: "File", keys: ["file"] },
+  { merchant: "Hakmar", keys: ["hakmar"] },
+  { merchant: "Onur Market", keys: ["onur"] },
+  { merchant: "Tarım Kredi Kooperatif Market", keys: ["tarim kredi"] },
+] as const;
 
-export const shokStoreAdapter: MerchantStoreAdapter = {
-  merchant: "ŞOK",
-  supports: (market) => normalizeText(market.name).includes("sok"),
-  lookup: async (context) => {
-    const liveStore = await configuredShokStoreFeed(context);
-    if (liveStore.length) return liveStore;
-    return officialShokCatalogLookup(context);
+export const merchantStoreAdapters: MerchantStoreAdapter[] = supportedMerchants.map(({ merchant, keys }) => ({
+  merchant,
+  supports: (market) => {
+    const normalized = normalizeText(market.name);
+    return keys.some((key) => normalized.includes(key));
   },
-};
-
-export const merchantStoreAdapters: MerchantStoreAdapter[] = [shokStoreAdapter];
+  lookup: (context) => officialMarketCatalogLookup(context, merchant),
+}));
 
 export async function lookupMerchantStoreProduct(context: StoreAdapterContext): Promise<StoreProductSnapshot[]> {
   const adapter = merchantStoreAdapters.find((candidate) => candidate.supports(context.market));
