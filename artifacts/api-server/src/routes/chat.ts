@@ -5,6 +5,7 @@ import type { AtlasChatErrorResponse, AtlasChatResponse, ComparisonResult, Ranke
 import { buildDecision, rankProducts } from "../lib/decision-scoring.js";
 import { searchProducts } from "../lib/product-search.js";
 import { searchMerchantNetwork } from "../lib/merchant-network.js";
+import { findNearbyMarkets } from "../lib/local-market-runtime.js";
 import { buildFollowUpNeed, buildMemoryCandidates, planRequest } from "../lib/request-planner.js";
 import { askGroq } from "../services/groq.js";
 import { searchWeb } from "../services/web-search.js";
@@ -13,6 +14,20 @@ const router = Router();
 type VercelRequest = Request & { body: unknown };
 type VercelResponse = Response & { status(code: number): VercelResponse; json(body: unknown): VercelResponse };
 
+type LiveLocation = { latitude: number; longitude: number; accuracy?: number };
+
+function extractLiveLocation(message: string): { cleanMessage: string; location?: LiveLocation } {
+  const match = message.match(/\[ATLAS_LOCATION:([-+]?\d+(?:\.\d+)?),([-+]?\d+(?:\.\d+)?)(?:,(\d+))?\]/);
+  if (!match) return { cleanMessage: message };
+  const latitude = Number(match[1]);
+  const longitude = Number(match[2]);
+  if (!Number.isFinite(latitude) || latitude < -90 || latitude > 90 || !Number.isFinite(longitude) || longitude < -180 || longitude > 180) return { cleanMessage: message.replace(match[0], "").trim() };
+  return {
+    cleanMessage: message.replace(match[0], "").trim(),
+    location: { latitude, longitude, ...(match[3] ? { accuracy: Number(match[3]) } : {}) },
+  };
+}
+
 function responseConfidence(products: RankedProduct[], sources: WebSource[], research: ResearchStatus): number {
   if (products.length) return products[0].confidence;
   if (research.status === "completed") return sources.length ? 0.7 : 0.45;
@@ -20,11 +35,25 @@ function responseConfidence(products: RankedProduct[], sources: WebSource[], res
   return 0.6;
 }
 
+function findLocalMarketHint(markets: Awaited<ReturnType<typeof findNearbyMarkets>>, products: RankedProduct[]): string | undefined {
+  for (const product of products) {
+    const haystack = `${product.title} ${product.seller ?? ""} ${product.source.domain}`.toLowerCase();
+    const chain = markets.find((market) => {
+      const name = market.name.toLowerCase();
+      return name.length >= 3 && (haystack.includes(name) || name.includes("migros") && haystack.includes("migros") || name.includes("bim") && haystack.includes("bim") || name.includes("a101") && haystack.includes("a101") || name.includes("şok") && haystack.includes("sok"));
+    });
+    if (chain) return `${chain.name} yaklaşık ${chain.distanceMeters} metre uzaklıkta; ${product.title} için internette görünen fiyat ${Math.round(product.priceTRY).toLocaleString("tr-TR")} TL.`;
+  }
+  return undefined;
+}
+
 router.post("/", async (req: VercelRequest, res: VercelResponse) => {
   const parsed = parseChatInput(req.body);
   if (!parsed.ok) return res.status(400).json({ success: false, error: parsed.error, message: "İstek doğrulanamadı.", sources: [], products: [], confidence: 0, memoryCandidates: [], research: { requested: false, status: "not_requested" } } satisfies AtlasChatErrorResponse);
 
-  const { message, history, memorySummary, priorProducts } = parsed;
+  const extracted = extractLiveLocation(parsed.message);
+  const message = extracted.cleanMessage;
+  const { history, memorySummary, priorProducts } = parsed;
   const conversationContext = history.filter((entry) => entry.role === "user").slice(-6).map((entry) => entry.content).join("\n");
   const initialPlan = planRequest(message, conversationContext, memorySummary);
   const plan = priorProducts.length > 0 && initialPlan.intent === "decision" && !initialPlan.requiresResearch ? { ...initialPlan, operation: "price_comparison" as const } : initialPlan;
@@ -35,6 +64,11 @@ router.post("/", async (req: VercelRequest, res: VercelResponse) => {
   let research: ResearchStatus = { requested: false, status: "not_requested" };
   const isProductOperation = plan.operation === "product_search" || plan.operation === "price_comparison";
   let normalizedProducts = !plan.requiresResearch && isProductOperation ? priorProducts : [];
+  let nearbyMarkets: Awaited<ReturnType<typeof findNearbyMarkets>> = [];
+
+  if (extracted.location && (isProductOperation || /market|mağaza|fiyat|al[aı]yım|ucuz/i.test(message))) {
+    try { nearbyMarkets = await findNearbyMarkets(extracted.location, 1000); } catch (error) { console.warn("[Atlas AI] nearby market lookup failed", error); }
+  }
 
   if (plan.requiresResearch && plan.query && !blockingFollowUp) {
     if (isProductOperation) {
@@ -66,6 +100,7 @@ router.post("/", async (req: VercelRequest, res: VercelResponse) => {
   const confidence = responseConfidence(products, sources, research);
   const followUpQuestion = followUp?.question;
   const prompt = buildAtlasPrompt({ message, history, memorySummary, plan, sources, products, decision, research });
+  const localMarketHint = nearbyMarkets.length && products.length ? findLocalMarketHint(nearbyMarkets, products) : undefined;
 
   let reply: string;
   if (blockingFollowUp) reply = "Aramaya ve karşılaştırmaya geçmeden önce tek bir bilgiye ihtiyacım var:";
@@ -73,7 +108,8 @@ router.post("/", async (req: VercelRequest, res: VercelResponse) => {
   else if (plan.requiresResearch && sources.length === 0) reply = "Araştırma tamamlandı ancak bu sorgu için doğrulanabilir güncel kaynak bulunamadı.";
   else if (isProductOperation) {
     const merchantVerifiedCount = products.filter((product) => product.priceVerification === "merchant_page").length;
-    reply = decision?.recommendation ? `Güncel kaynaklardan ${products.length} fiyatlı seçenek bulundu${merchantVerifiedCount ? `; ${merchantVerifiedCount} fiyat mağaza sayfasından doğrulandı` : "; bazı fiyatlar arama anındaki kaynak görüntüsüdür"}. Benim önerim: ${decision.recommendation.title}. ${decision.summary}` : "Mağazalar tarandı ancak doğrulanabilir ürün adı, TL fiyatı ve kaynak URL'si birlikte bulunan sonuç çıkarılamadı.";
+    const base = decision?.recommendation ? `Güncel kaynaklardan ${products.length} fiyatlı seçenek bulundu${merchantVerifiedCount ? `; ${merchantVerifiedCount} fiyat mağaza sayfasından doğrulandı` : "; bazı fiyatlar arama anındaki kaynak görüntüsüdür"}. Benim önerim: ${decision.recommendation.title}. ${decision.summary}` : "Mağazalar tarandı ancak doğrulanabilir ürün adı, TL fiyatı ve kaynak URL'si birlikte bulunan sonuç çıkarılamadı.";
+    reply = localMarketHint ? `${localMarketHint} ${base}` : base;
   } else if (!plan.requiresResearch && plan.intent === "conversation" && memoryCandidates.length > 0) reply = "Tercihini anladım. Bunu sonraki karar ve karşılaştırmalarda kullanacağım.";
   else {
     try { reply = await askGroq(prompt); }
