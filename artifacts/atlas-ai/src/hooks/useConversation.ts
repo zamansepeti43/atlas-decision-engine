@@ -37,6 +37,17 @@ const INITIAL_STATE: ConversationState = {
 
 function uid(): string { return Math.random().toString(36).slice(2, 10); }
 
+async function getLocationMarker(): Promise<string> {
+  if (!('geolocation' in navigator)) return '';
+  return new Promise((resolve) => {
+    navigator.geolocation.getCurrentPosition(
+      (position) => resolve(`\n[ATLAS_LOCATION:${position.coords.latitude.toFixed(6)},${position.coords.longitude.toFixed(6)},${Math.round(position.coords.accuracy)}]`),
+      () => resolve(''),
+      { enableHighAccuracy: false, maximumAge: 120000, timeout: 2500 },
+    );
+  });
+}
+
 export function useConversation() {
   const [state, setState] = useState<ConversationState>(() => ({ ...INITIAL_STATE, ...loadConversation() }));
   const [memory, setMemory] = useState<UserMemory>(getMemory);
@@ -71,7 +82,10 @@ export function useConversation() {
       }
 
       const history = buildConversationHistoryFromMessages(current.messages);
-      const result = await processUserTurn(trimmed, current.context, current.isAnsweringClarification, memoryRef.current, history);
+      // Atlas yalnızca kullanıcı izin verirse tarayıcının konumunu alır. Konum, API'ye
+      // yalnızca bu tur için imzalı/ayırt edilebilir bir bağlam etiketi olarak gider.
+      const locationMarker = await getLocationMarker();
+      const result = await processUserTurn(`${trimmed}${locationMarker}`, current.context, current.isAnsweringClarification, memoryRef.current, history);
 
       if (result.type === 'clarification') {
         const atlasMsg: ConversationMessage = { id: uid(), role: 'atlas', type: 'clarification', content: result.content.intro, clarificationData: result.content, timestamp: new Date() };
