@@ -2,13 +2,14 @@ import type { WebSource } from "./chat-types.js";
 import { normalizeProductCandidates } from "./product-normalizer.js";
 import { verifyProductPrice } from "./price-verifier.js";
 import { searchWeb } from "../services/web-search.js";
+import { lookupMerchantStoreProduct, type StoreProductSnapshot } from "./merchant-store-adapters.js";
 
 export interface UserLocation { latitude: number; longitude: number; accuracy?: number; }
 export interface NearbyMarket {
   id: string; name: string; latitude: number; longitude: number; distanceMeters: number; address?: string; source: "google" | "osm";
 }
 export interface NearbyPrice {
-  market: NearbyMarket; productName: string; priceTRY: number; url: string; source: WebSource; retrievedAt: string; exactMatch: boolean; verification: "merchant_page" | "search_snapshot";
+  market: NearbyMarket; productName: string; priceTRY: number; url: string; source: WebSource; retrievedAt: string; exactMatch: boolean; verification: "merchant_page" | "search_snapshot" | "official_store_feed"; stockStatus?: "in_stock" | "out_of_stock" | "unknown"; stockQuantity?: number; storeId?: string;
 }
 
 function distanceMeters(a: UserLocation, b: { latitude: number; longitude: number }) {
@@ -50,10 +51,35 @@ export async function findNearbyMarkets(location: UserLocation, radiusMeters = 1
   return (data.elements ?? []).map((item) => { const latitude = item.lat ?? item.center?.lat; const longitude = item.lon ?? item.center?.lon; return latitude == null || longitude == null ? null : { id: String(item.id), name: item.tags?.name ?? "Market", latitude, longitude, distanceMeters: distanceMeters(location, { latitude, longitude }), address: [item.tags?.["addr:street"], item.tags?.["addr:housenumber"], item.tags?.["addr:city"]].filter(Boolean).join(" ") || undefined, source: "osm" as const }; }).filter((x): x is NearbyMarket => Boolean(x)).sort((a, b) => a.distanceMeters - b.distanceMeters);
 }
 
+function snapshotToNearbyPrice(snapshot: StoreProductSnapshot, market: NearbyMarket, fallbackSource?: WebSource): NearbyPrice | null {
+  if (snapshot.priceTRY === undefined) return null;
+  return {
+    market,
+    productName: snapshot.productName,
+    priceTRY: snapshot.priceTRY,
+    url: snapshot.productUrl,
+    source: fallbackSource ?? { url: snapshot.productUrl, title: snapshot.productName, domain: "sokmarket.com.tr" },
+    retrievedAt: snapshot.checkedAt,
+    exactMatch: snapshot.exactMatch,
+    verification: snapshot.source === "official_store_feed" ? "official_store_feed" : "merchant_page",
+    stockStatus: snapshot.stockStatus,
+    stockQuantity: snapshot.stockQuantity,
+    storeId: snapshot.storeId,
+  };
+}
+
 export async function compareNearbyProduct(product: string, location: UserLocation, radiusMeters = 1000) {
   const markets = await findNearbyMarkets(location, radiusMeters);
   const searchable = markets.filter((market) => marketDomains(market.name).length).slice(0, 10);
   const priceResults = await Promise.all(searchable.map(async (market): Promise<NearbyPrice[]> => {
+    try {
+      const storeSnapshots = await lookupMerchantStoreProduct({ market, product, location });
+      const official = storeSnapshots.map((snapshot) => snapshotToNearbyPrice(snapshot, market)).filter((item): item is NearbyPrice => Boolean(item));
+      if (official.length) return official;
+    } catch (error) {
+      console.warn(`[Atlas AI] store adapter failed for ${market.name}`, error);
+    }
+
     const domains = marketDomains(market.name);
     const result = await searchWeb(`${product} fiyat`, process.env.TAVILY_API_KEY, fetch, { includeDomains: domains, searchDepth: "advanced" });
     const candidates = normalizeProductCandidates(result.sources, undefined, []);
@@ -61,5 +87,13 @@ export async function compareNearbyProduct(product: string, location: UserLocati
     return verified.filter(Boolean).map((item) => ({ market, productName: item!.title, priceTRY: item!.priceTRY, url: item!.url, source: result.sources.find((source) => source.url === item!.url) ?? result.sources[0], retrievedAt: item!.retrievedAt, exactMatch: item!.title.toLowerCase().includes(product.toLowerCase()), verification: item!.priceVerification === "merchant_page" ? "merchant_page" as const : "search_snapshot" as const }));
   }));
   const prices = priceResults.flat().sort((a, b) => a.priceTRY - b.priceTRY);
-  return { product: product.trim(), markets, prices, checkedAt: new Date().toISOString(), note: "Market konumu konum verisinden, fiyatlar mevcut web mağaza kaynaklarından alınır; raf fiyatı ve stok değişebilir." };
+  const inStock = prices.filter((price) => price.stockStatus === "in_stock");
+  return {
+    product: product.trim(),
+    markets,
+    prices,
+    inStock,
+    checkedAt: new Date().toISOString(),
+    note: "Atlas önce desteklenen marketin resmi mağaza/ürün verisini kullanır. Mağaza bazlı canlı stok feed'i yoksa resmi ürün sayfasına veya web fiyatına geri düşer; bu durumda şube stoğu kesin kabul edilmez.",
+  };
 }
