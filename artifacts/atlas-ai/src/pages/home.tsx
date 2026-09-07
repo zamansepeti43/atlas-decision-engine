@@ -44,11 +44,7 @@ export default function Home() {
     const viewport = window.visualViewport;
     const mobile = window.matchMedia('(max-width: 767px)');
     if (!viewport || !mobile.matches) return;
-
-    const syncViewportHeight = () => {
-      document.documentElement.style.setProperty('--atlas-viewport-height', `${viewport.height}px`);
-    };
-
+    const syncViewportHeight = () => document.documentElement.style.setProperty('--atlas-viewport-height', `${viewport.height}px`);
     syncViewportHeight();
     viewport.addEventListener('resize', syncViewportHeight);
     return () => {
@@ -67,14 +63,25 @@ export default function Home() {
     return () => window.removeEventListener('atlas-new-conversation', reset);
   }, [conversation.reset]);
 
+  // Atlas Life OS quick actions use this event to place a ready-to-send prompt here.
+  useEffect(() => {
+    const handlePrefill = (event: Event) => {
+      const custom = event as CustomEvent<{ text?: string }>;
+      const text = custom.detail?.text?.trim();
+      if (!text) return;
+      setQuestion(text);
+      window.setTimeout(() => textareaRef.current?.focus(), 0);
+    };
+    window.addEventListener('atlas-prefill', handlePrefill);
+    return () => window.removeEventListener('atlas-prefill', handlePrefill);
+  }, []);
+
   const submit = (value = question) => {
     const trimmed = value.trim();
     if (!trimmed || conversation.isThinking) return;
     setQuestion('');
     void conversation.sendMessage(trimmed);
-    if (window.matchMedia('(min-width: 768px)').matches) {
-      window.setTimeout(() => textareaRef.current?.focus(), 50);
-    }
+    if (window.matchMedia('(min-width: 768px)').matches) window.setTimeout(() => textareaRef.current?.focus(), 50);
   };
 
   const intentPreview = question.trim().length >= 8 ? detectIntentSync(question) : null;
