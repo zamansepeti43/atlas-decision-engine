@@ -1,9 +1,8 @@
 /**
  * Atlas capability contracts.
  *
- * These contracts deliberately separate what Atlas can orchestrate from what
- * requires a platform/provider integration. No capability is reported as
- * active unless its runtime adapter is actually configured.
+ * These contracts separate orchestration from external permissions/providers.
+ * Atlas never claims a provider-backed capability is live until its adapter is configured.
  */
 
 export type AtlasCapabilityId =
@@ -64,28 +63,27 @@ export const ATLAS_CAPABILITY_STATUSES: CapabilityStatus[] = [
     id: "merchant-prices",
     label: "Gerçek zamanlı mağaza fiyatları",
     mode: "provider",
-    ready: false,
+    ready: Boolean(process.env.TAVILY_API_KEY),
     requiresUserConsent: false,
-    description: "Merchant adapters can retrieve live public product pages when a compatible provider/route is configured.",
-    missing: ["merchant/search provider or permitted merchant adapters", "anti-bot/CORS-compatible server runtime"],
+    description: "On-demand web/merchant search with product normalization and price verification. Multiple Turkish merchant domains can be queried in parallel.",
+    missing: process.env.TAVILY_API_KEY ? undefined : ["TAVILY_API_KEY veya doğrudan merchant adapters"],
   },
   {
     id: "banking",
     label: "Banka bağlantısı",
     mode: "provider",
-    ready: false,
+    ready: Boolean(process.env.OPEN_BANKING_AUTHORIZE_URL),
     requiresUserConsent: true,
-    description: "Uses a regulated/open-banking provider or an explicit statement import; Atlas never asks for internet-banking passwords.",
-    missing: ["open-banking provider credentials/consent flow"],
+    description: "Uses a regulated/open-banking provider or explicit statement import. Atlas never asks for internet-banking passwords.",
+    missing: process.env.OPEN_BANKING_AUTHORIZE_URL ? undefined : ["OPEN_BANKING_AUTHORIZE_URL", "provider client credentials/callback"],
   },
   {
     id: "image-ocr-scam",
     label: "Görsel OCR + dolandırıcılık analizi",
     mode: "local",
-    ready: false,
+    ready: true,
     requiresUserConsent: false,
-    description: "The scam engine is local, while OCR needs a browser/native OCR runtime to be bundled or enabled.",
-    missing: ["OCR runtime (for example a bundled Tesseract.js worker)"],
+    description: "Turkish OCR runs in the user's browser with Tesseract.js loaded only on demand; extracted text is then analyzed locally by Scam Shield.",
   },
   {
     id: "phone-assistant",
@@ -93,26 +91,26 @@ export const ATLAS_CAPABILITY_STATUSES: CapabilityStatus[] = [
     mode: "native",
     ready: false,
     requiresUserConsent: true,
-    description: "Requires an Android/iOS native companion and OS-level call/audio permissions; a normal web page cannot silently capture cellular calls.",
+    description: "Requires an Android/iOS native companion and OS-level call/audio permissions. A normal web page cannot silently capture cellular calls.",
     missing: ["native mobile companion", "explicit OS permissions", "platform-compliant call/audio integration"],
   },
   {
     id: "checkout",
-    label: "Satın alma",
+    label: "Onaylı satın alma",
     mode: "provider",
     ready: false,
     requiresUserConsent: true,
-    description: "Atlas can prepare and validate a checkout, but payment/purchase must remain behind explicit user confirmation.",
+    description: "Atlas can prepare and validate checkout, but payment/purchase remains behind explicit user confirmation.",
     missing: ["merchant checkout adapter", "explicit purchase confirmation"],
   },
   {
     id: "web-agent",
-    label: "Otonom web ajanı",
+    label: "Kontrollü web ajanı",
     mode: "provider",
-    ready: false,
+    ready: Boolean(process.env.ATLAS_BROWSER_WORKER_URL),
     requiresUserConsent: true,
-    description: "A controlled browser worker is required. Authentication, payments and destructive actions always require confirmation.",
-    missing: ["browser automation runtime", "domain/action policy", "secure session handling"],
+    description: "A controlled browser worker can execute allowlisted web actions; authentication, payments and destructive actions always require confirmation.",
+    missing: process.env.ATLAS_BROWSER_WORKER_URL ? undefined : ["ATLAS_BROWSER_WORKER_URL", "domain/action policy", "secure session handling"],
   },
 ];
 
@@ -124,12 +122,8 @@ export function getCapabilityStatuses(): CapabilityStatus[] {
 }
 
 export function assertPurchaseAuthorized(auth: PurchaseAuthorization): void {
-  if (!auth.confirmedByUser) {
-    throw new Error("Purchase requires explicit user confirmation.");
-  }
-  if (!Number.isFinite(auth.totalTRY) || auth.totalTRY <= 0) {
-    throw new Error("Invalid purchase total.");
-  }
+  if (!auth.confirmedByUser) throw new Error("Purchase requires explicit user confirmation.");
+  if (!Number.isFinite(auth.totalTRY) || auth.totalTRY <= 0) throw new Error("Invalid purchase total.");
 }
 
 export function isAllowedAgentAction(action: WebAgentPolicy["requireConfirmationFor"][number], confirmed: boolean): boolean {
