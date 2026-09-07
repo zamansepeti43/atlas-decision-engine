@@ -1,9 +1,13 @@
-import { Router, type Request, type Response } from "express";
+import { Router, type Request } from "express";
 import { getCapabilityStatuses } from "../lib/atlas-capability-contracts.js";
 
 const router = Router();
 
-router.get("/capabilities", (_req: Request, res: Response) => {
+type JsonResponse = {
+  json: (body: unknown) => unknown;
+};
+
+router.get("/capabilities", (_req: Request, res: JsonResponse) => {
   res.json({
     success: true,
     capabilities: getCapabilityStatuses(),
