@@ -63,7 +63,7 @@ function inferPrice(sourceText: string): number | undefined {
 async function officialShokCatalogLookup(context: StoreAdapterContext): Promise<StoreProductSnapshot[]> {
   const result = await searchWeb(`${context.product} site:sokmarket.com.tr`, process.env.TAVILY_API_KEY, fetch, {
     includeDomains: SHOK_DOMAINS,
-    searchDepth: "advanced",
+    searchDepth: "basic",
   });
   const checkedAt = new Date().toISOString();
   const query = normalizeText(context.product);
