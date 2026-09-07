@@ -36,10 +36,14 @@ router.post("/", async (req: VercelRequest, res: VercelResponse) => {
   if (location && (isProductOperation || wantsNearbyAlternative(message))) {
     try {
       nearbyMarkets = await findNearbyMarkets(location, 1500);
-      if (wantsNearbyAlternative(message) && extractCurrentPrice(message)) {
+      // When a product is being discussed, check supported nearby chains even if the user did not
+      // provide a price. This lets Atlas answer "ŞOK'ta kaç para?" and then point out a nearby branch.
+      if (isProductOperation || (wantsNearbyAlternative(message) && extractCurrentPrice(message))) {
         const productHint = plan.query ?? plan.context.category ?? message.replace(/\d[\d.,]*\s*(?:tl|₺|lira)\b/gi, "").trim();
-        const nearby = await compareNearbyProduct(productHint, location, 1500);
-        nearbyPriceInsights = nearby.prices.slice(0, 8).map((price) => ({ marketName: price.market.name, distanceMeters: price.market.distanceMeters, productName: price.productName, priceTRY: price.priceTRY, url: price.url, exactMatch: price.exactMatch, verification: price.verification, retrievedAt: price.retrievedAt, stockStatus: price.stockStatus, stockQuantity: price.stockQuantity, storeId: price.storeId }));
+        if (productHint) {
+          const nearby = await compareNearbyProduct(productHint, location, 1500);
+          nearbyPriceInsights = nearby.prices.slice(0, 8).map((price) => ({ marketName: price.market.name, distanceMeters: price.market.distanceMeters, productName: price.productName, priceTRY: price.priceTRY, url: price.url, exactMatch: price.exactMatch, verification: price.verification, retrievedAt: price.retrievedAt, stockStatus: price.stockStatus, stockQuantity: price.stockQuantity, storeId: price.storeId }));
+        }
       }
     } catch (error) { console.warn("[Atlas AI] nearby market lookup failed", error); }
   }
@@ -53,19 +57,18 @@ router.post("/", async (req: VercelRequest, res: VercelResponse) => {
   const pricePriority = plan.operation === "price_comparison"; const products = rankProducts(normalizedProducts, plan.context, { pricePriority }); const decision = buildDecision(products, { pricePriority }); const comparison: ComparisonResult | undefined = products.length > 1 ? { criteria: ["budgetFit", "preferenceFit", "useCaseFit", "featureFit", "valueScore"], products } : undefined; const confidence = responseConfidence(products, sources, research); const followUpQuestion = followUp?.question; const prompt = buildAtlasPrompt({ message, history, memorySummary, plan, sources, products, decision, research }); const localMarketHint = nearbyMarkets.length && products.length ? findLocalMarketHint(nearbyMarkets, products) : undefined;
   let reply: string;
   if (nearbyPriceInsights.length) {
-    const currentPrice = extractCurrentPrice(message)!;
-    const rankedNearby = [...nearbyPriceInsights].sort((a, b) => {
-      const stockRank = (status?: string) => status === "in_stock" ? 0 : status === "unknown" ? 1 : 2;
-      return stockRank(a.stockStatus) - stockRank(b.stockStatus) || Number(b.exactMatch) - Number(a.exactMatch) || a.priceTRY - b.priceTRY || a.distanceMeters - b.distanceMeters;
-    });
+    const currentPrice = extractCurrentPrice(message);
+    const rankedNearby = [...nearbyPriceInsights].sort((a, b) => Number(b.exactMatch) - Number(a.exactMatch) || a.priceTRY - b.priceTRY || a.distanceMeters - b.distanceMeters);
     const best = rankedNearby[0];
-    const saving = currentPrice - best.priceTRY;
-    const stockText = best.stockStatus === "in_stock" ? "Stokta görünüyor." : best.stockStatus === "out_of_stock" ? "Bu mağazada stokta görünmüyor." : "Şube stok durumu kesin doğrulanamadı.";
-    const quantityText = best.stockQuantity != null ? ` Stok adedi: ${best.stockQuantity}.` : "";
-    const sourceText = best.verification === "official_store_feed" ? "Resmî mağaza stok/fiyat kaynağından." : best.verification === "merchant_page" ? "Resmî ürün sayfasından." : "Web fiyat kaynağından.";
-    if (saving > 0 && best.stockStatus !== "out_of_stock") reply = `Dostum, hemen alma. 📍 Yaklaşık ${best.distanceMeters} metre ilerideki ${best.marketName} için ${best.productName} ${best.priceTRY.toLocaleString("tr-TR")} TL. ${saving.toLocaleString("tr-TR")} TL daha ucuz. ${stockText}${quantityText} ${sourceText} ${best.exactMatch ? "Aynı ürüne yakın eşleşme." : "Daha ucuz benzer alternatif olabilir."}`;
-    else if (best.stockStatus === "out_of_stock") reply = `Dostum, ${best.marketName} yaklaşık ${best.distanceMeters} metre uzakta ama ${best.productName} için ${best.priceTRY.toLocaleString("tr-TR")} TL fiyatın yanında stokta olmadığı görünüyor. Başka mağaza/alternatiflere bakabiliriz.`;
-    else reply = `Dostum, yakın marketlerde ${best.marketName} için ${best.priceTRY.toLocaleString("tr-TR")} TL seviyesinde bir fiyat buldum; elindeki ${currentPrice.toLocaleString("tr-TR")} TL fiyattan daha ucuz görünmüyor. ${stockText} ${sourceText}`;
+    const stockText = best.stockStatus === "in_stock" ? "Ürün sayfasında satışa açık görünüyor; bu, o şubenin canlı stoğunu garanti etmez." : best.stockStatus === "out_of_stock" ? "Ürün sayfasında stokta olmadığı görünüyor; şube durumu ayrıca doğrulanmış değil." : "Şube stok durumu doğrulanamadı.";
+    const sourceText = best.verification === "official_store_feed" ? "Resmî mağaza kaynağından." : best.verification === "merchant_page" ? "Resmî market ürün sayfasından." : "Marketin resmî alan adı üzerindeki arama kaynağından.";
+    if (currentPrice !== undefined) {
+      const saving = currentPrice - best.priceTRY;
+      if (saving > 0) reply = `Dostum, hemen alma. 📍 Yaklaşık ${best.distanceMeters} metre ilerideki ${best.marketName} için ${best.productName} ${best.priceTRY.toLocaleString("tr-TR")} TL görünüyor; elindeki ${currentPrice.toLocaleString("tr-TR")} TL fiyattan ${saving.toLocaleString("tr-TR")} TL daha ucuz. ${stockText} ${sourceText}`;
+      else reply = `Dostum, yakındaki ${best.marketName} yaklaşık ${best.distanceMeters} metre uzaklıkta. Resmî market kaynağında ${best.productName} ${best.priceTRY.toLocaleString("tr-TR")} TL görünüyor; elindeki ${currentPrice.toLocaleString("tr-TR")} TL fiyattan daha ucuz değil. ${stockText} ${sourceText}`;
+    } else {
+      reply = `Dostum, yakındaki ${best.marketName} yaklaşık ${best.distanceMeters} metre uzaklıkta. 📍 Resmî market kaynağında ${best.productName} ${best.priceTRY.toLocaleString("tr-TR")} TL görünüyor. Bu fiyat resmî site fiyatıdır; şube fiyatı ve canlı şube stoğu ayrıca doğrulanmadıkça kesin kabul edilmez. ${stockText} ${sourceText}`;
+    }
   }
   else if (blockingFollowUp) reply = "Aramaya ve karşılaştırmaya geçmeden önce tek bir bilgiye ihtiyacım var:";
   else if (plan.requiresResearch && research.status !== "completed") reply = research.status === "unavailable" ? "Web araştırması şu anda kullanılamıyor. Bu nedenle güncel ürün, fiyat, mağaza veya kaynak doğrulayamıyorum." : "Web araştırması tamamlanamadı. Bu nedenle güncel ürün, fiyat, mağaza veya kaynak doğrulayamıyorum.";
