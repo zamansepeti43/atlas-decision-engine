@@ -39,7 +39,7 @@ router.post("/", async (req: VercelRequest, res: VercelResponse) => {
       if (wantsNearbyAlternative(message) && extractCurrentPrice(message)) {
         const productHint = plan.query ?? plan.context.category ?? message.replace(/\d[\d.,]*\s*(?:tl|₺|lira)\b/gi, "").trim();
         const nearby = await compareNearbyProduct(productHint, location, 1500);
-        nearbyPriceInsights = nearby.prices.slice(0, 8).map((price) => ({ marketName: price.market.name, distanceMeters: price.market.distanceMeters, productName: price.productName, priceTRY: price.priceTRY, url: price.url, exactMatch: price.exactMatch, verification: price.verification, retrievedAt: price.retrievedAt }));
+        nearbyPriceInsights = nearby.prices.slice(0, 8).map((price) => ({ marketName: price.market.name, distanceMeters: price.market.distanceMeters, productName: price.productName, priceTRY: price.priceTRY, url: price.url, exactMatch: price.exactMatch, verification: price.verification, retrievedAt: price.retrievedAt, stockStatus: price.stockStatus, stockQuantity: price.stockQuantity, storeId: price.storeId }));
       }
     } catch (error) { console.warn("[Atlas AI] nearby market lookup failed", error); }
   }
@@ -52,7 +52,21 @@ router.post("/", async (req: VercelRequest, res: VercelResponse) => {
   }
   const pricePriority = plan.operation === "price_comparison"; const products = rankProducts(normalizedProducts, plan.context, { pricePriority }); const decision = buildDecision(products, { pricePriority }); const comparison: ComparisonResult | undefined = products.length > 1 ? { criteria: ["budgetFit", "preferenceFit", "useCaseFit", "featureFit", "valueScore"], products } : undefined; const confidence = responseConfidence(products, sources, research); const followUpQuestion = followUp?.question; const prompt = buildAtlasPrompt({ message, history, memorySummary, plan, sources, products, decision, research }); const localMarketHint = nearbyMarkets.length && products.length ? findLocalMarketHint(nearbyMarkets, products) : undefined;
   let reply: string;
-  if (nearbyPriceInsights.length) { const currentPrice = extractCurrentPrice(message)!; const best = [...nearbyPriceInsights].sort((a, b) => a.priceTRY - b.priceTRY)[0]; const saving = currentPrice - best.priceTRY; reply = saving > 0 ? `Dostum, hemen alma. 📍 Yaklaşık ${best.distanceMeters} metre ilerideki ${best.marketName} için ${best.productName} ${best.priceTRY.toLocaleString("tr-TR")} TL fiyat kaynağı buldum. Bu, elindeki ${currentPrice.toLocaleString("tr-TR")} TL fiyattan yaklaşık ${saving.toLocaleString("tr-TR")} TL daha ucuz. ${best.exactMatch ? "Aynı ürüne yakın eşleşme." : "Bu farklı/benzer bir marka olabilir."} Mağaza içi fiyat ve stok değişebilir.` : `Dostum, yakın marketlerde ${best.marketName} için ${best.priceTRY.toLocaleString("tr-TR")} TL seviyesinde bir fiyat buldum; elindeki ${currentPrice.toLocaleString("tr-TR")} TL fiyattan daha ucuz görünmüyor. Mağaza içi fiyat ve stok değişebilir.`; }
+  if (nearbyPriceInsights.length) {
+    const currentPrice = extractCurrentPrice(message)!;
+    const rankedNearby = [...nearbyPriceInsights].sort((a, b) => {
+      const stockRank = (status?: string) => status === "in_stock" ? 0 : status === "unknown" ? 1 : 2;
+      return stockRank(a.stockStatus) - stockRank(b.stockStatus) || Number(b.exactMatch) - Number(a.exactMatch) || a.priceTRY - b.priceTRY || a.distanceMeters - b.distanceMeters;
+    });
+    const best = rankedNearby[0];
+    const saving = currentPrice - best.priceTRY;
+    const stockText = best.stockStatus === "in_stock" ? "Stokta görünüyor." : best.stockStatus === "out_of_stock" ? "Bu mağazada stokta görünmüyor." : "Şube stok durumu kesin doğrulanamadı.";
+    const quantityText = best.stockQuantity != null ? ` Stok adedi: ${best.stockQuantity}.` : "";
+    const sourceText = best.verification === "official_store_feed" ? "Resmî mağaza stok/fiyat kaynağından." : best.verification === "merchant_page" ? "Resmî ürün sayfasından." : "Web fiyat kaynağından.";
+    if (saving > 0 && best.stockStatus !== "out_of_stock") reply = `Dostum, hemen alma. 📍 Yaklaşık ${best.distanceMeters} metre ilerideki ${best.marketName} için ${best.productName} ${best.priceTRY.toLocaleString("tr-TR")} TL. ${saving.toLocaleString("tr-TR")} TL daha ucuz. ${stockText}${quantityText} ${sourceText} ${best.exactMatch ? "Aynı ürüne yakın eşleşme." : "Daha ucuz benzer alternatif olabilir."}`;
+    else if (best.stockStatus === "out_of_stock") reply = `Dostum, ${best.marketName} yaklaşık ${best.distanceMeters} metre uzakta ama ${best.productName} için ${best.priceTRY.toLocaleString("tr-TR")} TL fiyatın yanında stokta olmadığı görünüyor. Başka mağaza/alternatiflere bakabiliriz.`;
+    else reply = `Dostum, yakın marketlerde ${best.marketName} için ${best.priceTRY.toLocaleString("tr-TR")} TL seviyesinde bir fiyat buldum; elindeki ${currentPrice.toLocaleString("tr-TR")} TL fiyattan daha ucuz görünmüyor. ${stockText} ${sourceText}`;
+  }
   else if (blockingFollowUp) reply = "Aramaya ve karşılaştırmaya geçmeden önce tek bir bilgiye ihtiyacım var:";
   else if (plan.requiresResearch && research.status !== "completed") reply = research.status === "unavailable" ? "Web araştırması şu anda kullanılamıyor. Bu nedenle güncel ürün, fiyat, mağaza veya kaynak doğrulayamıyorum." : "Web araştırması tamamlanamadı. Bu nedenle güncel ürün, fiyat, mağaza veya kaynak doğrulayamıyorum.";
   else if (plan.requiresResearch && sources.length === 0) reply = "Araştırma tamamlandı ancak bu sorgu için doğrulanabilir güncel kaynak bulunamadı.";
