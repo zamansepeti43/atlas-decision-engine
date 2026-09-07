@@ -1,9 +1,10 @@
-import { useMemo, useState } from 'react';
-import { AlertTriangle, ArrowRight, Bot, CheckCircle2, Eye, Search, ShieldCheck, ShoppingCart, Wallet, Car, Home, Briefcase, Users, BookOpen, Brain, ListTodo, Link2 } from 'lucide-react';
+import { useMemo, useRef, useState } from 'react';
+import { AlertTriangle, ArrowRight, Bot, CheckCircle2, Eye, Search, ShieldCheck, ShoppingCart, Wallet, Car, Home, Briefcase, Users, BookOpen, Brain, ListTodo, Link2, Image as ImageIcon, Loader2 } from 'lucide-react';
 import { useLocation } from 'wouter';
 import { useAssistantState } from '@/hooks/useAssistantState';
 import { analyzeScamText, ATLAS_CAPABILITIES } from '@/lib/atlas-capabilities';
 import { analyzeUrl, summarizeBudget } from '@/lib/offline-tools';
+import { extractTurkishText } from '@/lib/local-ocr';
 
 const ICONS = { shopping: ShoppingCart, finance: Wallet, 'scam-shield': ShieldCheck, automotive: Car, 'real-estate': Home, career: Briefcase, family: Users, learning: BookOpen, memory: Brain, tasks: ListTodo, research: Search } as const;
 
@@ -12,6 +13,10 @@ export default function AtlasOS() {
   const state = useAssistantState();
   const [scamText, setScamText] = useState('');
   const [urlText, setUrlText] = useState('');
+  const [ocrBusy, setOcrBusy] = useState(false);
+  const [ocrConfidence, setOcrConfidence] = useState<number | null>(null);
+  const [ocrError, setOcrError] = useState('');
+  const fileInput = useRef<HTMLInputElement>(null);
   const analysis = useMemo(() => analyzeScamText(scamText), [scamText]);
   const urlAnalysis = useMemo(() => analyzeUrl(urlText), [urlText]);
   const budget = useMemo(() => summarizeBudget(state.budgetEntries), [state.budgetEntries]);
@@ -24,12 +29,28 @@ export default function AtlasOS() {
     window.setTimeout(() => window.dispatchEvent(new CustomEvent('atlas-prefill', { detail: text })), 0);
   };
 
+  const runOcr = async (file?: File) => {
+    if (!file) return;
+    setOcrBusy(true);
+    setOcrError('');
+    try {
+      const result = await extractTurkishText(file);
+      setScamText(result.text);
+      setOcrConfidence(result.confidence);
+    } catch (error) {
+      setOcrError(error instanceof Error ? error.message : 'OCR çalıştırılamadı.');
+      setOcrConfidence(null);
+    } finally {
+      setOcrBusy(false);
+    }
+  };
+
   return (
     <main className="min-h-screen flex-1 overflow-auto bg-background p-4 md:p-8">
       <div className="mx-auto max-w-7xl space-y-6">
         <section className="rounded-3xl border border-border bg-card p-6 shadow-sm md:p-8">
           <div className="flex flex-col gap-6 md:flex-row md:items-end md:justify-between">
-            <div><div className="mb-3 flex items-center gap-2 text-primary"><Bot className="h-5 w-5" /><span className="text-xs font-semibold uppercase tracking-[0.22em]">Atlas Life OS</span></div><h1 className="text-3xl font-bold tracking-tight md:text-5xl">Sen sor. Atlas araştırır, düşünür, takip eder.</h1><p className="mt-3 max-w-2xl text-muted-foreground">API gerektirmeyen kişisel karar araçları artık Atlas'ın içinde: güvenlik, bütçe, görev, takip ve karar akışı.</p></div>
+            <div><div className="mb-3 flex items-center gap-2 text-primary"><Bot className="h-5 w-5" /><span className="text-xs font-semibold uppercase tracking-[0.22em]">Atlas Life OS</span></div><h1 className="text-3xl font-bold tracking-tight md:text-5xl">Sen sor. Atlas araştırır, düşünür, takip eder.</h1><p className="mt-3 max-w-2xl text-muted-foreground">Yerel karar araçları, görsel OCR, güvenlik kontrolleri, bütçe ve İzci tek merkezde.</p></div>
             <button onClick={() => ask('Bugün benim için önemli olan görevleri, takipleri ve uyarıları özetle.')} className="inline-flex items-center justify-center gap-2 rounded-xl bg-primary px-5 py-3 font-medium text-primary-foreground">Atlas'a sor <ArrowRight className="h-4 w-4" /></button>
           </div>
         </section>
@@ -37,8 +58,15 @@ export default function AtlasOS() {
         <section className="grid gap-3 sm:grid-cols-3"><Stat icon={ListTodo} label="Aktif görev" value={activeTasks} /><Stat icon={Eye} label="İzlenen" value={activeTracks} /><Stat icon={AlertTriangle} label="Okunmamış İzci" value={unread} /></section>
 
         <section className="grid gap-4 lg:grid-cols-2">
-          <ToolCard icon={ShieldCheck} title="Dolandırıcılık Kalkanı" description="Mesajı analiz et; baskı, ödül, hassas bilgi ve link sinyallerini açıkla.">
+          <ToolCard icon={ShieldCheck} title="Dolandırıcılık Kalkanı" description="Metin veya ekran görüntüsünü yerel OCR ile çıkar, ardından risk sinyallerini analiz et.">
             <textarea value={scamText} onChange={(e) => setScamText(e.target.value)} placeholder="Örn. Tebrikler, 50.000 TL kazandınız..." className="min-h-28 w-full rounded-xl border border-border bg-background p-3 text-sm outline-none focus:ring-2 focus:ring-primary/30" />
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button onClick={() => fileInput.current?.click()} disabled={ocrBusy} className="inline-flex items-center gap-2 rounded-xl border border-border px-3 py-2 text-sm font-medium hover:bg-muted disabled:opacity-50"><ImageIcon className="h-4 w-4" />{ocrBusy ? 'Görsel okunuyor…' : 'Görselden OCR yap'}</button>
+              <input ref={fileInput} type="file" accept="image/*" className="hidden" onChange={(e) => void runOcr(e.target.files?.[0])} />
+              {ocrBusy && <Loader2 className="h-5 w-5 animate-spin text-primary" />}
+              {ocrConfidence !== null && <span className="rounded-xl bg-muted/40 px-3 py-2 text-xs">OCR güveni: %{Math.round(ocrConfidence)}</span>}
+            </div>
+            {ocrError && <p className="mt-2 text-sm text-destructive">{ocrError}</p>}
             {scamText && <div className="mt-3 rounded-xl border border-border p-4"><div className="flex items-center justify-between"><div><p className="text-xs text-muted-foreground">Risk</p><p className="font-bold">{analysis.level}</p></div><span className="text-3xl font-bold">%{analysis.score}</span></div><ul className="mt-3 space-y-2 text-sm">{analysis.signals.map((s) => <li key={s} className="flex gap-2"><AlertTriangle className="h-4 w-4 shrink-0" />{s}</li>)}</ul><p className="mt-3 text-sm text-muted-foreground">{analysis.recommendation}</p></div>}
           </ToolCard>
 
@@ -51,7 +79,7 @@ export default function AtlasOS() {
             <div className="grid grid-cols-2 gap-2 text-sm"><Metric label="Gelir" value={budget.income} /><Metric label="Gider" value={budget.expenses} /><Metric label="Borç" value={budget.debt} /><Metric label="Tasarruf" value={budget.saving} /></div><div className="mt-3 flex items-center justify-between rounded-xl bg-muted/40 p-3"><span>Net bakiye</span><strong>{budget.balance.toLocaleString('tr-TR')} TL</strong></div><p className="mt-2 text-xs text-muted-foreground">Tasarruf oranı: %{budget.savingRate}. Bu hesap finansal tavsiye değil, kayıtlı verilerin özetidir.</p>
           </ToolCard>
 
-          <ToolCard icon={ListTodo} title="İzci & Otomasyon Temeli" description="Atlas'ın verdiği kararları görev, hatırlatıcı, hedef ve fiyat takibine dönüştürmek için mevcut yerel altyapıyı kullanır.">
+          <ToolCard icon={ListTodo} title="İzci & Otomasyon" description="Kararları görev, hatırlatıcı, hedef ve fiyat takibine bağlar.">
             <div className="space-y-2 text-sm"><StatusRow label="Görevler" value={`${activeTasks} aktif`} /><StatusRow label="Fiyat takipleri" value={`${activeTracks} aktif`} /><StatusRow label="Uyarılar" value={`${unread} yeni`} /></div><button onClick={() => navigate('/izci')} className="mt-4 inline-flex items-center gap-2 text-sm font-medium text-primary">İzci'yi aç <ArrowRight className="h-4 w-4" /></button>
           </ToolCard>
         </section>
