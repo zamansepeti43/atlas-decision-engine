@@ -5,14 +5,16 @@ export interface OcrResult {
   language: "tur";
 }
 
-type TesseractModule = {
-  createWorker: (language?: string, oem?: number, options?: Record<string, unknown>) => Promise<{
-    recognize: (image: File | Blob | string) => Promise<{ data: { text: string; confidence?: number } }>;
-    terminate: () => Promise<void>;
-  }>;
+type TesseractWorker = {
+  recognize: (image: File | Blob | string) => Promise<{ data: { text: string; confidence?: number } }>;
+  terminate: () => Promise<void>;
 };
 
-let workerPromise: Promise<Awaited<ReturnType<NonNullable<TesseractModule["createWorker"]>>> | null = null;
+type TesseractModule = {
+  createWorker: (language?: string, oem?: number, options?: Record<string, unknown>) => Promise<TesseractWorker>;
+};
+
+let workerPromise: Promise<TesseractWorker> | null = null;
 
 async function loadTesseract(): Promise<TesseractModule> {
   // Tesseract.js is loaded only when the user explicitly asks for OCR. This keeps
@@ -21,7 +23,7 @@ async function loadTesseract(): Promise<TesseractModule> {
   return (await import(/* @vite-ignore */ moduleUrl)) as unknown as TesseractModule;
 }
 
-async function getWorker() {
+async function getWorker(): Promise<TesseractWorker> {
   if (!workerPromise) {
     workerPromise = loadTesseract().then((module) => module.createWorker("tur"));
   }
