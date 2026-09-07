@@ -81,7 +81,7 @@ export async function compareNearbyProduct(product: string, location: UserLocati
     }
 
     const domains = marketDomains(market.name);
-    const result = await searchWeb(`${product} fiyat`, process.env.TAVILY_API_KEY, fetch, { includeDomains: domains, searchDepth: "advanced" });
+    const result = await searchWeb(`${product} fiyat`, process.env.TAVILY_API_KEY, fetch, { includeDomains: domains, searchDepth: "basic" });
     const candidates = normalizeProductCandidates(result.sources, undefined, []);
     const verified = await Promise.all(candidates.map((candidate) => verifyProductPrice(candidate)));
     return verified.filter(Boolean).map((item) => ({ market, productName: item!.title, priceTRY: item!.priceTRY, url: item!.url, source: result.sources.find((source) => source.url === item!.url) ?? result.sources[0], retrievedAt: item!.retrievedAt, exactMatch: item!.title.toLowerCase().includes(product.toLowerCase()), verification: item!.priceVerification === "merchant_page" ? "merchant_page" as const : "search_snapshot" as const }));
