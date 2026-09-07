@@ -1,4 +1,5 @@
 import { addGoal, addReminder, addSubscription, addTask, addTrackedProduct } from './assistant-store';
+import { formatMemoryResult, formatScamResult, formatUrlResult } from './local-intelligence';
 
 export interface AssistantActionResult {
   handled: boolean;
@@ -52,6 +53,19 @@ export function handleAssistantAction(message: string, referenceDate = new Date(
   const trimmed = message.trim();
   const lower = trimmed.toLocaleLowerCase('tr-TR');
 
+  // API-free safety tools run locally and do not send message contents anywhere.
+  if (/(dolandır|sahte|phishing|oltalama|şüpheli mesaj|güvenli mi|güvenilir mi)/i.test(lower) && !/ürün|telefon|araba|almalıyım/i.test(lower)) {
+    return { handled: true, reply: formatScamResult(trimmed) };
+  }
+
+  if (/(link|url|bağlantı).*(güven|güvenli|şüpheli|kontrol|incele)|https?:\/\//i.test(trimmed) && /güven|kontrol|şüpheli|incele/i.test(lower)) {
+    return { handled: true, reply: formatUrlResult(trimmed) };
+  }
+
+  if (/(hafıza|hatırla|hatırlıyor musun|unut|tercihimi)/i.test(lower)) {
+    return { handled: true, reply: formatMemoryResult() };
+  }
+
   if (/(hatırlat|hatırlatıcı)/i.test(lower)) {
     const scheduled = parseDate(trimmed, referenceDate);
     if (!scheduled) return { handled: true, reply: 'Hatırlatıcıyı kaydetmem için tarih veya zamanı netleştirir misin?' };
@@ -73,10 +87,7 @@ export function handleAssistantAction(message: string, referenceDate = new Date(
     const url = trimmed.match(/https?:\/\/\S+/i)?.[0];
     const targetMatch = trimmed.match(/hedef(?: fiyat)?[^\d]*(\d[\d.]*(?:,\d+)?)\s*(bin)?\s*(?:tl|lira|₺)/i);
     const targetPrice = targetMatch ? parseAmount(targetMatch[0]) : undefined;
-    const trackingSubject = trimmed
-      .replace(url ?? '', '')
-      .replace(targetMatch?.[0] ?? '', '')
-      .replace(/[,;]\s*$/, '');
+    const trackingSubject = trimmed.replace(url ?? '', '').replace(targetMatch?.[0] ?? '', '').replace(/[,;]\s*$/, '');
     const name = cleanSubject(trackingSubject) || 'Ürün';
     const product = addTrackedProduct({ name, ...(url && { url, source: new URL(url).hostname }), ...(targetPrice !== undefined && { targetPrice }) });
     const sourceNote = product.status === 'unavailable' ? ' Doğrulanabilir kaynak eklenene kadar durum unavailable olarak kalacak.' : '';
