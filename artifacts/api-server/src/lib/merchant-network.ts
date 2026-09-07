@@ -7,6 +7,8 @@ export const ATLAS_MERCHANTS = [
   "trendyol.com", "hepsiburada.com", "n11.com", "amazon.com.tr", "pazarama.com",
   "mediamarkt.com.tr", "vatanbilgisayar.com", "teknosa.com", "pttavm.com", "koctas.com.tr",
   "boyner.com.tr", "lcw.com", "gratis.com", "watsons.com.tr", "decathlon.com.tr",
+  "migros.com.tr", "carrefoursa.com", "a101.com.tr", "bim.com.tr", "sokmarket.com.tr",
+  "file.com.tr", "hakmar.com.tr", "tarimkredi.com.tr", "onurmarket.com.tr",
 ];
 
 export interface MerchantNetworkResult {
