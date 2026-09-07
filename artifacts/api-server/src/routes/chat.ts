@@ -19,6 +19,7 @@ function responseConfidence(products: RankedProduct[], sources: WebSource[], res
 function findLocalMarketHint(markets: Awaited<ReturnType<typeof findNearbyMarkets>>, products: RankedProduct[]): string | undefined { for (const product of products) { const haystack = `${product.title} ${product.seller ?? ""} ${product.source.domain}`.toLowerCase(); const chain = markets.find((market) => { const name = market.name.toLowerCase(); return name.length >= 3 && (haystack.includes(name) || name.includes("migros") && haystack.includes("migros") || name.includes("bim") && haystack.includes("bim") || name.includes("a101") && haystack.includes("a101") || name.includes("şok") && haystack.includes("sok")); }); if (chain) return `${chain.name} yaklaşık ${chain.distanceMeters} metre uzaklıkta; ${product.title} için internette görünen fiyat ${Math.round(product.priceTRY).toLocaleString("tr-TR")} TL.`; } return undefined; }
 function extractCurrentPrice(message: string): number | undefined { const match = message.match(/(?:^|\s)(\d[\d.,]*)\s*(?:tl|₺|lira)\b/i); if (!match) return undefined; const value = Number(match[1].replace(/\./g, "").replace(",", ".")); return Number.isFinite(value) && value > 0 ? value : undefined; }
 function wantsNearbyAlternative(message: string): boolean { return /al(?:ayım|ayim)|alsam|almalı|uygun mu|ucuz|daha ucuz|yakın|market|mağaza|buradan|şuradan/i.test(message); }
+function wantsGlobalPriceComparison(message: string): boolean { return /en uygun|en ucuz|en ucuzunu|en uygununu|fiyat karşılaştır|fiyatlarini karşılaştır|fiyatlarını karşılaştır|tüm market|bütün market|her yerde|internette en ucuz/i.test(message); }
 
 router.post("/", async (req: VercelRequest, res: VercelResponse) => {
   const parsed = parseChatInput(req.body);
@@ -36,9 +37,9 @@ router.post("/", async (req: VercelRequest, res: VercelResponse) => {
   if (location && (isProductOperation || wantsNearbyAlternative(message))) {
     try {
       nearbyMarkets = await findNearbyMarkets(location, 1500);
-      // When a product is being discussed, check supported nearby chains even if the user did not
-      // provide a price. This lets Atlas answer "ŞOK'ta kaç para?" and then point out a nearby branch.
-      if (isProductOperation || (wantsNearbyAlternative(message) && extractCurrentPrice(message))) {
+      // Global fiyat karşılaştırmasında yakındaki market sorgusu ayrıca çalıştırılmaz;
+      // zincir marketlerin resmî fiyatları merchant-network üzerinden karşılaştırılır.
+      if (!wantsGlobalPriceComparison(message) && (isProductOperation || (wantsNearbyAlternative(message) && extractCurrentPrice(message)))) {
         const productHint = plan.query ?? plan.context.category ?? message.replace(/\d[\d.,]*\s*(?:tl|₺|lira)\b/gi, "").trim();
         if (productHint) {
           const nearby = await compareNearbyProduct(productHint, location, 1500);
@@ -49,12 +50,21 @@ router.post("/", async (req: VercelRequest, res: VercelResponse) => {
   }
   if (plan.requiresResearch && plan.query && !blockingFollowUp) {
     if (isProductOperation) {
-      const searchResult = await searchProducts(plan.query, plan.backfillQuery, undefined, { ...(plan.context.brand && { brand: plan.context.brand }), ...(plan.context.category && { category: plan.context.category }), ...(plan.context.excludedBrands.length > 0 && { excludeBrands: plan.context.excludedBrands }) });
-      sources = searchResult.sources; research = searchResult.research; normalizedProducts = searchResult.products;
-      if (normalizedProducts.length === 0 && process.env.ATLAS_MULTI_MERCHANT_SEARCH !== "false") { const merchantResult = await searchMerchantNetwork(plan.query, plan.context.category, plan.context.excludedBrands); sources = [...new Map([...sources, ...merchantResult.sources].map((source) => [source.url, source])).values()]; normalizedProducts = merchantResult.products; if (merchantResult.research.status === "completed") research = merchantResult.research; }
+      if (wantsGlobalPriceComparison(message)) {
+        // "En uygun" artık genel web sonuçlarına bırakılmıyor: Atlas aynı ürünü
+        // desteklenen pazaryerleri + zincir marketler + büyük perakendecilerde tarıyor.
+        const merchantResult = await searchMerchantNetwork(plan.query, plan.context.category, plan.context.excludedBrands);
+        sources = merchantResult.sources;
+        research = merchantResult.research;
+        normalizedProducts = merchantResult.products;
+      } else {
+        const searchResult = await searchProducts(plan.query, plan.backfillQuery, undefined, { ...(plan.context.brand && { brand: plan.context.brand }), ...(plan.context.category && { category: plan.context.category }), ...(plan.context.excludedBrands.length > 0 && { excludeBrands: plan.context.excludedBrands }) });
+        sources = searchResult.sources; research = searchResult.research; normalizedProducts = searchResult.products;
+        if (normalizedProducts.length === 0 && process.env.ATLAS_MULTI_MERCHANT_SEARCH !== "false") { const merchantResult = await searchMerchantNetwork(plan.query, plan.context.category, plan.context.excludedBrands); sources = [...new Map([...sources, ...merchantResult.sources].map((source) => [source.url, source])).values()]; normalizedProducts = merchantResult.products; if (merchantResult.research.status === "completed") research = merchantResult.research; }
+      }
     } else { const searchResult = await searchWeb(plan.query); sources = searchResult.sources; research = searchResult.research; }
   }
-  const pricePriority = plan.operation === "price_comparison"; const products = rankProducts(normalizedProducts, plan.context, { pricePriority }); const decision = buildDecision(products, { pricePriority }); const comparison: ComparisonResult | undefined = products.length > 1 ? { criteria: ["budgetFit", "preferenceFit", "useCaseFit", "featureFit", "valueScore"], products } : undefined; const confidence = responseConfidence(products, sources, research); const followUpQuestion = followUp?.question; const prompt = buildAtlasPrompt({ message, history, memorySummary, plan, sources, products, decision, research }); const localMarketHint = nearbyMarkets.length && products.length ? findLocalMarketHint(nearbyMarkets, products) : undefined;
+  const pricePriority = plan.operation === "price_comparison" || wantsGlobalPriceComparison(message); const products = rankProducts(normalizedProducts, plan.context, { pricePriority }); const decision = buildDecision(products, { pricePriority }); const comparison: ComparisonResult | undefined = products.length > 1 ? { criteria: ["budgetFit", "preferenceFit", "useCaseFit", "featureFit", "valueScore"], products } : undefined; const confidence = responseConfidence(products, sources, research); const followUpQuestion = followUp?.question; const prompt = buildAtlasPrompt({ message, history, memorySummary, plan, sources, products, decision, research }); const localMarketHint = nearbyMarkets.length && products.length ? findLocalMarketHint(nearbyMarkets, products) : undefined;
   let reply: string;
   if (nearbyPriceInsights.length) {
     const currentPrice = extractCurrentPrice(message);
@@ -62,18 +72,13 @@ router.post("/", async (req: VercelRequest, res: VercelResponse) => {
     const best = rankedNearby[0];
     const stockText = best.stockStatus === "in_stock" ? "Ürün sayfasında satışa açık görünüyor; bu, o şubenin canlı stoğunu garanti etmez." : best.stockStatus === "out_of_stock" ? "Ürün sayfasında stokta olmadığı görünüyor; şube durumu ayrıca doğrulanmış değil." : "Şube stok durumu doğrulanamadı.";
     const sourceText = best.verification === "official_store_feed" ? "Resmî mağaza kaynağından." : best.verification === "merchant_page" ? "Resmî market ürün sayfasından." : "Marketin resmî alan adı üzerindeki arama kaynağından.";
-    if (currentPrice !== undefined) {
-      const saving = currentPrice - best.priceTRY;
-      if (saving > 0) reply = `Dostum, hemen alma. 📍 Yaklaşık ${best.distanceMeters} metre ilerideki ${best.marketName} için ${best.productName} ${best.priceTRY.toLocaleString("tr-TR")} TL görünüyor; elindeki ${currentPrice.toLocaleString("tr-TR")} TL fiyattan ${saving.toLocaleString("tr-TR")} TL daha ucuz. ${stockText} ${sourceText}`;
-      else reply = `Dostum, yakındaki ${best.marketName} yaklaşık ${best.distanceMeters} metre uzaklıkta. Resmî market kaynağında ${best.productName} ${best.priceTRY.toLocaleString("tr-TR")} TL görünüyor; elindeki ${currentPrice.toLocaleString("tr-TR")} TL fiyattan daha ucuz değil. ${stockText} ${sourceText}`;
-    } else {
-      reply = `Dostum, yakındaki ${best.marketName} yaklaşık ${best.distanceMeters} metre uzaklıkta. 📍 Resmî market kaynağında ${best.productName} ${best.priceTRY.toLocaleString("tr-TR")} TL görünüyor. Bu fiyat resmî site fiyatıdır; şube fiyatı ve canlı şube stoğu ayrıca doğrulanmadıkça kesin kabul edilmez. ${stockText} ${sourceText}`;
-    }
+    if (currentPrice !== undefined) { const saving = currentPrice - best.priceTRY; if (saving > 0) reply = `Dostum, hemen alma. 📍 Yaklaşık ${best.distanceMeters} metre ilerideki ${best.marketName} için ${best.productName} ${best.priceTRY.toLocaleString("tr-TR")} TL görünüyor; elindeki ${currentPrice.toLocaleString("tr-TR")} TL fiyattan ${saving.toLocaleString("tr-TR")} TL daha ucuz. ${stockText} ${sourceText}`; else reply = `Dostum, yakındaki ${best.marketName} yaklaşık ${best.distanceMeters} metre uzaklıkta. Resmî market kaynağında ${best.productName} ${best.priceTRY.toLocaleString("tr-TR")} TL görünüyor; elindeki ${currentPrice.toLocaleString("tr-TR")} TL fiyattan daha ucuz değil. ${stockText} ${sourceText}`; }
+    else reply = `Dostum, yakındaki ${best.marketName} yaklaşık ${best.distanceMeters} metre uzaklıkta. 📍 Resmî market kaynağında ${best.productName} ${best.priceTRY.toLocaleString("tr-TR")} TL görünüyor. Bu fiyat resmî site fiyatıdır; şube fiyatı ve canlı şube stoğu ayrıca doğrulanmadıkça kesin kabul edilmez. ${stockText} ${sourceText}`;
   }
   else if (blockingFollowUp) reply = "Aramaya ve karşılaştırmaya geçmeden önce tek bir bilgiye ihtiyacım var:";
   else if (plan.requiresResearch && research.status !== "completed") reply = research.status === "unavailable" ? "Web araştırması şu anda kullanılamıyor. Bu nedenle güncel ürün, fiyat, mağaza veya kaynak doğrulayamıyorum." : "Web araştırması tamamlanamadı. Bu nedenle güncel ürün, fiyat, mağaza veya kaynak doğrulayamıyorum.";
   else if (plan.requiresResearch && sources.length === 0) reply = "Araştırma tamamlandı ancak bu sorgu için doğrulanabilir güncel kaynak bulunamadı.";
-  else if (isProductOperation) { const merchantVerifiedCount = products.filter((product) => product.priceVerification === "merchant_page").length; const base = decision?.recommendation ? `Güncel kaynaklardan ${products.length} fiyatlı seçenek bulundu${merchantVerifiedCount ? `; ${merchantVerifiedCount} fiyat mağaza sayfasından doğrulandı` : "; bazı fiyatlar arama anındaki kaynak görüntüsüdür"}. Benim önerim: ${decision.recommendation.title}. ${decision.summary}` : "Mağazalar tarandı ancak doğrulanabilir ürün adı, TL fiyatı ve kaynak URL'si birlikte bulunan sonuç çıkarılamadı."; reply = localMarketHint ? `${localMarketHint} ${base}` : base; }
+  else if (isProductOperation) { const merchantVerifiedCount = products.filter((product) => product.priceVerification === "merchant_page").length; const globalText = wantsGlobalPriceComparison(message) && products.length > 0 ? ` ${products.length} doğrulanabilir sonuç arasından en düşük fiyat ayrıca öne çıkarıldı.` : ""; const base = decision?.recommendation ? `Güncel kaynaklardan ${products.length} fiyatlı seçenek bulundu${merchantVerifiedCount ? `; ${merchantVerifiedCount} fiyat mağaza sayfasından doğrulandı` : "; bazı fiyatlar arama anındaki kaynak görüntüsüdür"}. Benim önerim: ${decision.recommendation.title}. ${decision.summary}${globalText}` : "Mağazalar ve pazaryerleri tarandı ancak doğrulanabilir ürün adı, TL fiyatı ve kaynak URL'si birlikte bulunan sonuç çıkarılamadı."; reply = localMarketHint ? `${localMarketHint} ${base}` : base; }
   else if (!plan.requiresResearch && plan.intent === "conversation" && memoryCandidates.length > 0) reply = "Tercihini anladım. Bunu sonraki karar ve karşılaştırmalarda kullanacağım.";
   else { try { reply = await askGroq(prompt); } catch (error) { console.error("[Atlas AI] AI provider request failed", error); return res.status(503).json({ success: false, error: "AI servisi kullanılamıyor.", message: "Atlas şu anda yanıt üretemiyor. Lütfen daha sonra tekrar deneyin.", intent: plan.intent, domain: plan.context.domain, sources, products, confidence, memoryCandidates, research } satisfies AtlasChatErrorResponse); } }
   const responseHistory = [...history, { role: "user" as const, content: message }, { role: "assistant" as const, content: reply }];
