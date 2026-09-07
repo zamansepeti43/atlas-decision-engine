@@ -39,7 +39,7 @@ test('buildAtlasPrompt marks supplied web content untrusted and forbids fabricat
     plan: planRequest('Güncel bilgiyi araştır.'),
     sources,
     products: [],
-    research: { requested: true, status: 'completed' },
+    research: { requested: true, status: 'completed', provider: 'searxng' },
   });
   const systemContent = messages[0].content;
   const toolContent = messages.at(-2)?.content ?? '';
@@ -58,11 +58,11 @@ test('buildAtlasPrompt discloses unavailable research to synthesis', () => {
     plan: planRequest('Güncel fiyatı bul.'),
     sources: [],
     products: [],
-    research: { requested: true, status: 'unavailable', error: 'TAVILY_API_KEY yapılandırılmamış.' },
+    research: { requested: true, status: 'unavailable', provider: 'searxng', error: 'SearXNG sonuç vermedi ve Tavily son çare sağlayıcısı yapılandırılmamış.' },
   });
 
   assert.match(messages.at(-2)?.content ?? '', /unavailable/);
-  assert.match(messages.at(-2)?.content ?? '', /TAVILY_API_KEY/);
+  assert.match(messages.at(-2)?.content ?? '', /SearXNG/);
 });
 
 test('buildAtlasPrompt lists explicitly excluded brands as a constraint', () => {
